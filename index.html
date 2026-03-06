@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
 <meta name="color-scheme" content="light only"/>
-<title>서울영동교회 어와나</title>
+<title>어쩜조암</title>
 <link rel="icon" href="https://sydc.net/image/subD/info/ci_logo.jpg">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;color-scheme:light;}
@@ -507,7 +507,7 @@ function buildLoading(){
   return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
     D({textAlign:"center",color:"#fff"},
       el("img",{src:"https://sydc.net/image/subD/info/ci_logo.jpg",style:{height:"60px",objectFit:"contain",marginBottom:"12px",filter:"brightness(0) invert(1)"}}),
-      D({fontWeight:"700",fontSize:"18px",marginBottom:"8px"},"서울영동교회 어와나"),
+      D({fontWeight:"700",fontSize:"18px",marginBottom:"8px"},"어쩜조아 - 서울영동교회 어와나"),
       D({fontSize:"13px",color:"#94A3B8"},"로딩 중...")
     )
   );
@@ -529,7 +529,8 @@ function buildLogin(){
   return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
     D({background:"#fff",borderRadius:"24px",padding:"36px 32px",width:"320px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"},
       el("img",{src:"awana.png",style:{height:"90px",objectFit:"contain",marginBottom:"8px"}}),
-      D({fontWeight:"700",fontSize:"15px",color:"#1E293B",marginBottom:"20px"},"어와나 클럽 매니저"),
+      D({fontWeight:"700",fontSize:"15px",color:"#1E293B",marginBottom:"4px"},"어쩜조아"),
+      D({fontSize:"13px",color:"#64748B",marginBottom:"20px"},"어와나 클럽 매니저"),
       pinp,
       S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null,
       B({width:"100%",background:"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"15px",cursor:"pointer"},tryLogin,"입장하기"),
