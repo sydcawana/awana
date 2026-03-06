@@ -507,7 +507,7 @@ function buildLoading(){
   return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
     D({textAlign:"center",color:"#fff"},
       el("img",{src:"https://sydc.net/image/subD/info/ci_logo.jpg",style:{height:"60px",objectFit:"contain",marginBottom:"12px",filter:"brightness(0) invert(1)"}}),
-      D({fontWeight:"700",fontSize:"18px",marginBottom:"8px"},"어쩜조아 - 서울영동교회 어와나"),
+      D({fontWeight:"700",fontSize:"18px",marginBottom:"8px"},"서울영동교회 어와나"),
       D({fontSize:"13px",color:"#94A3B8"},"로딩 중...")
     )
   );
@@ -528,9 +528,9 @@ function buildLogin(){
   pinp.addEventListener("keydown",e=>{if(e.key==="Enter")tryLogin();});
   return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
     D({background:"#fff",borderRadius:"24px",padding:"36px 32px",width:"320px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"},
-      el("img",{src:"awana.png",style:{height:"90px",objectFit:"contain",marginBottom:"8px"}}),
-      D({fontWeight:"700",fontSize:"15px",color:"#1E293B",marginBottom:"4px"},"어쩜조아"),
-      D({fontSize:"13px",color:"#64748B",marginBottom:"20px"},"어와나 클럽 매니저"),
+      el("img",{src:"https://raw.githubusercontent.com/sydcawana/awana/main/awana_logo.jpg",style:{height:"100px",objectFit:"contain",marginBottom:"12px"}}),
+      D({fontWeight:"900",fontSize:"22px",color:"#1E293B",marginBottom:"4px"},"어쩜조아"),
+      D({fontSize:"13px",color:"#94A3B8",marginBottom:"20px"},"어와나 클럽 매니저"),
       pinp,
       S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null,
       B({width:"100%",background:"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"15px",cursor:"pointer"},tryLogin,"입장하기"),
@@ -550,11 +550,11 @@ function buildApp(){
   const isAdmin=S.role==="admin";
 
   // 헤더
-  const visWeeks=isAdmin?WEEKS:WEEKS.filter(w=>!S.closedWeeks.includes(w));
+  const visWeeks=WEEKS;
   const safeWeeks=visWeeks.length?visWeeks:[S.week];
   if(!safeWeeks.includes(S.week)){S.week=safeWeeks[0];listenWeek(S.week);}
   if(!S._weekFocused){const fo=WEEKS.find(w=>!S.closedWeeks.includes(w));if(fo!==undefined&&S.week!==fo){S.week=fo;listenWeek(fo);}S._weekFocused=true;}
-  const weekLabel=w=>{const lk=S.closedWeeks.includes(w);return w===0?(lk?'🔒 ':'🔓 ')+'0주차 '+WEEK_DATES[0]:(lk?'🔒 ':'🔓 ')+w+'주차 '+WEEK_DATES[w];};
+  const weekLabel=w=>{const lk=S.closedWeeks.includes(w);return w===0?(lk?'🔒':'✅')+' 0주차 '+WEEK_DATES[0]:(lk?'🔒':'✅')+' '+w+'주차 '+WEEK_DATES[w];};
 
   const header=D({background:"#1E293B",color:"#fff",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"},
     D({},
@@ -562,22 +562,22 @@ function buildApp(){
       D({fontSize:"11px",color:"#94A3B8",marginTop:"1px"},isAdmin?"관리자":S.role==="game"?"운영진":"일반 선생님")
     ),
     D({display:"flex",gap:"6px",alignItems:"center"},
-      sel(safeWeeks.map(w=>{const lk=S.closedWeeks.includes(w);return[String(w),weekLabel(w),lk?{color:"#64748B"}:{color:"#fff",fontWeight:"700"}];}),String(S.week),v=>{S.week=Number(v);S.selHb=null;listenWeek(S.week);render();},{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}),
+      sel(safeWeeks.map(w=>{const lk=S.closedWeeks.includes(w);return[String(w),weekLabel(w),lk?{color:"#94A3B8",background:"#1E293B"}:{color:"#fff",fontWeight:"700",background:"#334155"}];}),String(S.week),v=>{S.week=Number(v);S.selHb=null;listenWeek(S.week);render();},{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}),
       isAdmin?B({background:locked?"#F59E0B":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"12px",cursor:"pointer"},toggleLock,locked?"🔒":"🔓"):null,
       isAdmin?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"13px",cursor:"pointer"},()=>{S.showSettings=true;S.stTab="students";render();},"⚙️"):null,
       B({background:"#475569",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"11px",cursor:"pointer"},()=>{S.role=null;if(wUnsub)wUnsub();render();},"🚪")
     )
   );
 
-  const lockBanner=locked?D({background:"#FFF7ED",borderBottom:"3px solid #F59E0B",padding:"8px 16px",fontSize:"12px",color:"#92400E",display:"flex",alignItems:"center",gap:"6px"},
-    SP({fontSize:"14px"},"🔒"),"비활성화 된 주차입니다. 입력은 불가하며 조회만 가능합니다."
+  const lockBanner=locked?D({background:"#FFF7ED",borderBottom:"3px solid #F59E0B",padding:"10px 16px",fontSize:"13px",color:"#92400E",display:"flex",alignItems:"center",gap:"8px",fontWeight:"600"},
+    SP({fontSize:"16px"},"🔒"),"마감된 주차예요. 조회만 가능합니다."
   ):null;
 
   const tabBar=D({display:"flex",background:"#fff",borderBottom:"1px solid #E2E8F0"},
     ...tabs.map(([id,label])=>B({flex:"1",padding:"12px 0",border:"none",background:"none",cursor:"pointer",fontWeight:S.tab===id?"700":"400",fontSize:"13px",color:S.tab===id?"#3B82F6":"#64748B",borderBottom:S.tab===id?"2px solid #3B82F6":"2px solid transparent"},()=>{S.tab=id;S.selHb=null;render();},label))
   );
 
-  const footer=D({background:"#1E293B",padding:"8px 16px",textAlign:"center"},SP({fontSize:"12px",color:"#94A3B8",fontWeight:"600",letterSpacing:"1px"},"서울영동교회 어와나"));
+  const footer=D({background:"#1E293B",padding:"8px 16px",textAlign:"center",position:"sticky",bottom:"0",zIndex:"10"},SP({fontSize:"12px",color:"#94A3B8",fontWeight:"600",letterSpacing:"1px"},"서울영동교회 어와나"));
   return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
     header,lockBanner,tabBar,
     (()=>{
@@ -874,56 +874,45 @@ function buildAwardPopup(){
       return card;
     }
 
-    // 보석 1~8 모두 표시, 순서대로만 클릭 가능
+    // 보석 1~8 - 티앤티처럼 자유롭게 토글
     const gemsUnlocked=(hadBadge||hasBadge)&&(hadWing||hasWing);
-    const nextIdx=pastGems; // 다음으로 받을 보석 인덱스
-    const hasCurGem=curGems>0;
-    const allDone=pastGems>=8;
+    const totalGems2=pastGems+curGems;
 
     const gemGrid=D({display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px"},
       ...GEM_SEQ.map((tid,i)=>{
         const tm=TEAMS.find(x=>x.id===tid);
         const gemName=tid==="red"?"빨강":"초록";
-        const isPast=i<pastGems;
-        const isNext=i===nextIdx&&!allDone&&gemsUnlocked;
-        const isCur=isNext&&hasCurGem;
-        // 순서 잠금: 이전 보석 받아야 다음 클릭 가능
-        const isBlocked=!isPast&&!isNext&&!isCur;
-        const isLocked=(!isNext&&!isCur)||locked||!gemsUnlocked;
+        const isDone=i<totalGems2; // 이전주+이번주 합산으로 체크됨
+        const isCurRange=i>=pastGems&&i<totalGems2; // 이번주에 받은 것
+        const isDisabled=locked||!gemsUnlocked;
 
         const circleStyle={width:"36px",height:"36px",borderRadius:"50%",
           display:"flex",alignItems:"center",justifyContent:"center",
           fontWeight:"800",fontSize:"15px"};
 
-        let circle;
-        if(isPast){
-          circle=D({...circleStyle,background:tm.color,color:"#fff"},"✓");
-        } else if(isCur){
-          circle=D({...circleStyle,background:tm.color,color:"#fff"},"✓");
-        } else if(isNext){
-          // 받을 수 있는 보석: 볼드 테두리, 색상 강조
-          circle=D({...circleStyle,background:tm.light,
-            border:`2px solid ${tm.color}`,color:tm.color,fontSize:"16px",fontWeight:"900"},
-            String(i+1));
-        } else {
-          // 아직 못 받는 보석: 흐리게
-          circle=D({...circleStyle,background:"#F8FAFC",
-            border:"1px solid #E2E8F0",color:"#CBD5E1"},String(i+1));
-        }
+        const circle=isDone
+          ?D({...circleStyle,background:tm.color,color:"#fff"},"✓")
+          :D({...circleStyle,background:"#F8FAFC",border:"1px solid #E2E8F0",color:"#CBD5E1"},String(i+1));
 
         const box=D({display:"flex",flexDirection:"column",alignItems:"center",gap:"5px",
           padding:"10px 6px",borderRadius:"10px",
-          border:`2px solid ${isPast||isCur?tm.color:isNext?tm.color:"#E2E8F0"}`,
-          background:isPast||isCur?tm.light:isNext?tm.light+"80":"#F8FAFC",
-          cursor:isLocked?"default":"pointer",
-          opacity:(!isPast&&!isNext&&!isCur)?"0.35":"1"},
+          border:`2px solid ${isDone?tm.color:"#E2E8F0"}`,
+          background:isDone?tm.light:"#F8FAFC",
+          cursor:isDisabled?"default":"pointer",
+          opacity:isDisabled&&!isDone?"0.45":"1"},
           circle,
-          SP({fontSize:"10px",fontWeight:isNext||isPast||isCur?"700":"400",
-            color:isPast||isCur||isNext?tm.color:"#CBD5E1"},gemName)
+          SP({fontSize:"10px",fontWeight:isDone?"700":"400",
+            color:isDone?tm.color:"#CBD5E1"},gemName)
         );
 
-        if(!isLocked) box.addEventListener("click",async()=>{
-          await save({gems:isCur?0:1});
+        if(!isDisabled) box.addEventListener("click",async()=>{
+          // 클릭한 보석이 이미 체크된 경우: 이번 주 범위면 토글(취소), 과거 주차면 무시
+          if(isDone){
+            if(isCurRange) await save({gems:curGems-1});
+          } else {
+            // 미체크 → 체크: 이 인덱스까지 모두 채움
+            await save({gems:i-pastGems+1});
+          }
         });
         return box;
       })
@@ -938,10 +927,10 @@ function buildAwardPopup(){
       D({fontWeight:"700",fontSize:"13px",color:"#475569",marginBottom:"8px"},"▸ 보석"),
       !gemsUnlocked
         ? D({fontSize:"11px",color:"#F59E0B",marginBottom:"10px"},"⚠️ 승급표식과 날개핀 완료 후 보석을 받을 수 있어요")
-        : allDone
+        : totalGems2>=8
           ? D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},"🎉 8개 보석을 모두 받았어요!")
           : D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
-              `${pastGems>0?pastGems+"개 받음 · ":""}이번 주: ${GEM_SEQ[nextIdx]==="red"?"빨강":"초록"} 보석`),
+              `${pastGems>0?pastGems+"개 받음 · ":""}${totalGems2>=8?"8개 모두 완료!":"다음: "+(GEM_SEQ[totalGems2]==="red"?"빨강":"초록")+" 보석"}`),
       gemGrid
     );
     }
