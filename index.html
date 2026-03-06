@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<title>서울영동교회 어와나</title>
+<link rel="icon" href="https://sydc.net/image/subD/info/ci_logo.jpg">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:'Segoe UI',sans-serif;background:#F8FAFC;}
+@keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+@keyframes revealCard{0%{opacity:0;transform:scale(0.3) rotate(-10deg)}60%{transform:scale(1.1) rotate(2deg)}100%{opacity:1;transform:scale(1) rotate(0deg)}}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.reveal-card{animation:revealCard 0.8s cubic-bezier(0.175,0.885,0.32,1.275) forwards}
+.fade-in-up{animation:fadeInUp 0.4s ease forwards}
+select,input,button,textarea{font-family:inherit;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import{getFirestore,doc,setDoc,onSnapshot}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const FB = initializeApp({
+  apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
+  authDomain:"sydc-awana.firebaseapp.com",
+  projectId:"sydc-awana",
+  storageBucket:"sydc-awana.firebasestorage.app",
+  messagingSenderId:"716775567560",
+  appId:"1:716775567560:web:9baa258b83eff5d377f5fd"
+});
+const db = getFirestore(FB);
+
+// ════════════════════════════════════
+//  상수
+// ════════════════════════════════════
+const TEAMS = [
+  {id:"red",    name:"빨강", color:"#EF4444", light:"#FEF2F2", border:"#FECACA", grad:"linear-gradient(135deg,#EF4444,#DC2626)"},
+  {id:"yellow", name:"노랑", color:"#EAB308", light:"#FEFCE8", border:"#FEF08A", grad:"linear-gradient(135deg,#EAB308,#CA8A04)"},
+  {id:"green",  name:"초록", color:"#22C55E", light:"#F0FDF4", border:"#BBF7D0", grad:"linear-gradient(135deg,#22C55E,#16A34A)"},
+  {id:"blue",   name:"파랑", color:"#3B82F6", light:"#EFF6FF", border:"#BFDBFE", grad:"linear-gradient(135deg,#3B82F6,#2563EB)"},
+];
+const TEAM_MAP = {"빨강팀":"red","노랑팀":"yellow","초록팀":"green","파랑팀":"blue","빨강":"red","노랑":"yellow","초록":"green","파랑":"blue"};
+const HANDBOOKS = ["행글라이더","윙러너","스카이스토머","어드벤처1","어드벤처2","챌린지1","챌린지2"];
+const HB_GROUPS = [
+  {label:"Sparks",color:"#EF4444",light:"#FFF0F0",border:"#FFCDD2",books:["행글라이더","윙러너","스카이스토머"]},
+  {label:"T&T",  color:"#16A34A",light:"#F0FFF4",border:"#BBF7D0",books:["어드벤처1","어드벤처2","챌린지1","챌린지2"]},
+];
+const WEEK_DATES = ["테스트","3월 8일","3월 15일","3월 22일","3월 29일","4월 5일","4월 12일","4월 19일","5월 3일","5월 10일","5월 17일","5월 24일","5월 31일","6월 7일","6월 14일","6월 21일"];
+const WEEKS = Array.from({length:16},(_,i)=>i); // 0=테스트, 1~15
+const SEED = [];
+
+// 시상 옵션
+const AWARDS_SPARKS = ["수상대","빨강보석","초록보석"];
+const AWARDS_TNT = ["씰1","씰2","씰3","씰4","씰5","씰6","씰7","씰8"];
+function getAwardGroup(hb){
+  return ["행글라이더","윙러너","스카이스토머"].includes(hb)?"sparks":"tnt";
+}
+function getAwardOptions(hb){
+  return getAwardGroup(hb)==="sparks"?AWARDS_SPARKS:AWARDS_TNT;
+}
+
+// ════════════════════════════════════
+//  상태
+// ════════════════════════════════════
+const S = {
+  role:null, pwErr:"", tab:"handbook", week:0, selHb:null,
+  gameTab:"sparks", showSettings:false, stTab:"students",
+  search:"", editSt:null,
+  settings:{firstPlace:800,gap:100,attScore:50,uniScore:50,signScore:50},
+  settingsInput:{firstPlace:800,gap:100,attScore:50,uniScore:50,signScore:50},
+  newSt:{name:"",team:"red",handbook:"행글라이더"},
+  passwords:{general:"",game:"",admin:""},
+  students:[],
+  wdata:{},
+  closedWeeks:Array.from({length:15},(_,i)=>i+1), // 1~15 잠금, 0(테스트) 열림
+  ceremony:false, cScores:{red:0,yellow:0,green:0,blue:0}, cRevealed:[], loaded:false,
+  awardPopup:null, // {sid, name, hb}
+};
+
+// ════════════════════════════════════
+//  Firebase helpers
+// ════════════════════════════════════
+const fbSave = (id,data) => setDoc(doc(db,"awana",id),data);
+const saveStudents = () => fbSave("students",{list:S.students});
+const saveSettings = () => fbSave("settings",{...S.settings,passwords:S.passwords,closedWeeks:S.closedWeeks});
+async function saveAwards(sid, awards){
+  S.students = S.students.map(s => s.id===sid ? {...s, awards} : s);
+  await saveStudents();
+}
+const saveWeek = w => { const d=S.wdata[w]; if(d) fbSave(`week_${w}`,d); };
+
+let wUnsub=null;
+function listenWeek(w){
+  if(wUnsub) wUnsub();
+  wUnsub=onSnapshot(doc(db,"awana",`week_${w}`),snap=>{
+    S.wdata[w]=snap.exists()?snap.data():initWD();
+    render();
+  });
+}
+function startListeners(){
+  onSnapshot(doc(db,"awana","students"),snap=>{
+    S.students=snap.exists()?(snap.data().list||[]):[];
+    render();
+  });
+  onSnapshot(doc(db,"awana","settings"),snap=>{
+    if(snap.exists()){
+      const d=snap.data();
+      S.settings={firstPlace:d.firstPlace||800,gap:d.gap||100,attScore:d.attScore||50,uniScore:d.uniScore||50,signScore:d.signScore||50};
+      S.settingsInput={...S.settings};
+      if(d.passwords) S.passwords=d.passwords;
+      S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
+    }
+    render();
+  });
+  listenWeek(S.week);
+}
+
+// ════════════════════════════════════
+//  데이터 헬퍼
+// ════════════════════════════════════
+function initRound(n){return{id:Date.now()+n,name:`라운드 ${n}`,scores:{red:0,yellow:0,green:0,blue:0}};}
+function initGame(n=1){return{rounds:Array.from({length:n},(_,i)=>initRound(i+1))};}
+function initWD(){return{students:{},games:{sparks:initGame(1),tnt:initGame(1)},gameFinalized:false};}
+function getWD(){return S.wdata[S.week]||initWD();}
+function getSD(sid){return getWD().students?.[sid]||{attendance:false,uniform:false,signs:0};}
+function getTeam(tid){return TEAMS.find(t=>t.id===tid)||TEAMS[0];}
+function hbStu(hb){return S.students.filter(s=>s.handbook===hb);}
+function isLocked(){return S.closedWeeks.includes(S.week);}
+
+function stuScore(sid){
+  const d=getSD(sid),{attScore:a=50,uniScore:u=50,signScore:sg=50}=S.settings;
+  return (d.attendance?a:0)+(d.uniform?u:0)+((d.signs||0)*sg);
+}
+function teamHb(tid){return S.students.filter(s=>s.team===tid).reduce((s,st)=>s+stuScore(st.id),0);}
+function gameCum(type,tid){return(getWD().games?.[type]?.rounds||[]).reduce((s,r)=>s+(r.scores?.[tid]||0),0);}
+function rankScores(type){
+  const sorted=[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id));
+  const res={};sorted.forEach((t,i)=>{res[t.id]=Math.max(0,S.settings.firstPlace-i*S.settings.gap);});return res;
+}
+function totalScore(tid){
+  const hb=teamHb(tid);
+  if(!getWD().gameFinalized) return hb;
+  return hb+rankScores("sparks")[tid]+rankScores("tnt")[tid];
+}
+function allChecked(hb,field){const hs=hbStu(hb);return hs.length>0&&hs.every(s=>(getWD().students?.[s.id]||{})[field]);}
+
+// ════════════════════════════════════
+//  액션
+// ════════════════════════════════════
+async function setSD(sid,patch){
+  if(isLocked()) return;
+  const wd=JSON.parse(JSON.stringify(getWD()));
+  wd.students[sid]={...(wd.students[sid]||{attendance:false,uniform:false,signs:0}),...patch};
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+}
+async function bulkCheck(hb,field,val){
+  if(isLocked()) return;
+  const wd=JSON.parse(JSON.stringify(getWD()));
+  hbStu(hb).forEach(s=>{wd.students[s.id]={...(wd.students[s.id]||{attendance:false,uniform:false,signs:0}),[field]:val};});
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+}
+async function setGame(type,fn){
+  if(isLocked()) return;
+  const wd=JSON.parse(JSON.stringify(getWD()));
+  wd.games[type]=fn(wd.games[type]||initGame(1));
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+}
+async function setFinalized(val){
+  if(isLocked()) return;
+  const wd=JSON.parse(JSON.stringify(getWD()));
+  wd.gameFinalized=val; S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+}
+async function toggleLock(){
+  const w=S.week;
+  S.closedWeeks=S.closedWeeks.includes(w)?S.closedWeeks.filter(x=>x!==w):[...S.closedWeeks,w];
+  await saveSettings(); render();
+}
+async function resetWeekData(w){
+  const fresh=initWD();
+  await fbSave(`week_${w}`,fresh);
+  S.wdata[w]=fresh;
+  if(S.week===w) listenWeek(w);
+}
+
+function parseCSV(text){
+  text=text.replace(/^\uFEFF/,"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  const lines=text.split("\n").map(l=>l.trim()).filter(Boolean);
+  const result=[];
+  lines.forEach((line,i)=>{
+    if(i===0&&/이름|name/i.test(line)) return;
+    const sep=line.includes("\t")?"\t":",";
+    const raw=line.split(sep).map(x=>x.replace(/^"|"$/g,"").trim());
+    const name=raw[0]||"";
+    const teamRaw=(raw[1]||"").replace(/\s/g,"");
+    const hb=(raw[2]||"").replace(/\s/g,"");
+    const tid=TEAM_MAP[teamRaw];
+    if(tid&&name) result.push({id:`s_${Date.now()}_${i}_${Math.random().toString(36).slice(2)}`,name,team:tid,handbook:hb});
+  });
+  return result;
+}
+
+// ════════════════════════════════════
+//  오디오
+// ════════════════════════════════════
+let actx=null;
+function ac(){if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();return actx;}
+function playDrum(dur=1200){
+  const ctx=ac(),t0=ctx.currentTime;
+  for(let i=0;i<30;i++){const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.type="sawtooth";const t=t0+i*(dur/1000/30);o.frequency.setValueAtTime(80+Math.random()*40,t);g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.12,t+0.01);g.gain.linearRampToValueAtTime(0,t+0.04);o.start(t);o.stop(t+0.05);}
+}
+function playFanfare(first=false){
+  const ctx=ac(),t=ctx.currentTime;
+  (first?[523,659,784,1047,784,1047,1319]:[440,523,659,523]).forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.type="square";o.frequency.value=f;const s=t+i*0.15;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(first?0.3:0.2,s+0.02);g.gain.linearRampToValueAtTime(0,s+0.3);o.start(s);o.stop(s+0.35);});
+}
+function playCount(){
+  const ctx=ac(),t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+  o.connect(g);g.connect(ctx.destination);o.type="sine";o.frequency.setValueAtTime(440,t);o.frequency.linearRampToValueAtTime(880,t+1.5);g.gain.setValueAtTime(0.1,t);g.gain.linearRampToValueAtTime(0,t+1.5);o.start(t);o.stop(t+1.5);
+}
+
+
+
+// ════════════════════════════════════
+//  시상식
+// ════════════════════════════════════
+function startCeremony(){
+  S.ceremony=true;S.cRevealed=[];S.cScores={red:0,yellow:0,green:0,blue:0};render();
+  const targets={};TEAMS.forEach(t=>{targets[t.id]=totalScore(t.id);});
+  const sorted=[...TEAMS].sort((a,b)=>totalScore(b.id)-totalScore(a.id));
+  const dur=2500,start=Date.now();playCount();
+  const tick=()=>{
+    const p=Math.min((Date.now()-start)/dur,1),e=1-Math.pow(1-p,3);
+    TEAMS.forEach(t=>{S.cScores[t.id]=Math.floor(targets[t.id]*e);});render();
+    if(p<1) requestAnimationFrame(tick);
+    else{TEAMS.forEach(t=>{S.cScores[t.id]=targets[t.id];});revealNext(sorted,3);}
+  };requestAnimationFrame(tick);
+}
+function revealNext(sorted,idx){
+  if(idx<0){spawnConfetti();render();return;}
+  setTimeout(()=>{playDrum();setTimeout(()=>{S.cRevealed=[...S.cRevealed,sorted[idx].id];playFanfare(idx===0);render();revealNext(sorted,idx-1);},1300);},600);
+}
+function spawnConfetti(){
+  const c=document.getElementById("cconf");if(!c) return;
+  ["#EF4444","#EAB308","#22C55E","#3B82F6","#fff","#ffd700"].forEach(col=>{
+    for(let i=0;i<14;i++){const d=document.createElement("div");const sz=6+Math.random()*10;Object.assign(d.style,{position:"absolute",width:sz+"px",height:sz+"px",background:col,borderRadius:Math.random()>.5?"50%":"2px",left:Math.random()*100+"%",top:"-20px",animation:`confettiFall ${1.5+Math.random()*2}s ease ${Math.random()*2}s forwards`});c.appendChild(d);}
+  });
+}
+
+// ════════════════════════════════════
+//  DOM 헬퍼
+// ════════════════════════════════════
+function el(tag,props={},...ch){
+  const e=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==="style"&&typeof v==="object") Object.assign(e.style,v);
+    else if(k==="className") e.className=v;
+    else if(k.startsWith("on")&&typeof v==="function") e.addEventListener(k.slice(2).toLowerCase(),v);
+    else e.setAttribute(k,v);
+  });
+  ch.flat().forEach(c=>{if(c==null||c===false)return;e.appendChild(typeof c==="string"||typeof c==="number"?document.createTextNode(String(c)):c);});
+  return e;
+}
+const D=(s,...c)=>el("div",{style:s},...c);
+const SP=(s,...c)=>el("span",{style:s},...c);
+const B=(s,fn,...c)=>el("button",{style:s,onClick:fn},...c);
+function inp(ph,val,fn,style={},type="text"){
+  const i=document.createElement("input");i.type=type;i.placeholder=ph;i.value=val!=null?String(val):"";
+  Object.assign(i.style,{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px 10px",fontSize:"13px",...style});
+  i.addEventListener("input",()=>fn(i.value));return i;
+}
+function sel(opts,val,fn,style={}){
+  const s=document.createElement("select");Object.assign(s.style,style);
+  opts.forEach(([v,l])=>{const o=document.createElement("option");o.value=v;o.textContent=l;if(v===val)o.selected=true;s.appendChild(o);});
+  s.addEventListener("change",()=>fn(s.value));return s;
+}
+
+// ════════════════════════════════════
+//  렌더
+// ════════════════════════════════════
+function render(){
+  document.getElementById("root").innerHTML="";
+  document.getElementById("root").appendChild(S.role?buildApp():(S.loaded?buildLogin():buildLoading()));
+}
+
+// ── 로딩 ──
+function buildLoading(){
+  return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
+    D({textAlign:"center",color:"#fff"},
+      el("img",{src:"https://sydc.net/image/subD/info/ci_logo.jpg",style:{height:"60px",objectFit:"contain",marginBottom:"12px",filter:"brightness(0) invert(1)"}}),
+      D({fontWeight:"700",fontSize:"18px",marginBottom:"8px"},"서울영동교회 어와나"),
+      D({fontSize:"13px",color:"#94A3B8"},"로딩 중...")
+    )
+  );
+}
+
+// ── 로그인 ──
+function buildLogin(){
+  let pw="";
+  const pinp=inp("비밀번호 입력","",v=>pw=v,{width:"100%",padding:"14px",fontSize:"16px",borderRadius:"12px",border:"2px solid #E2E8F0",marginBottom:"10px",boxSizing:"border-box",textAlign:"center",letterSpacing:"4px"},"password");
+  function tryLogin(){
+    const p=pw.trim();
+    if(p===S.passwords.admin)      {S.role="admin"; S.pwErr="";}
+    else if(p===S.passwords.game)  {S.role="game";  S.pwErr="";}
+    else if(p===S.passwords.general){S.role="general";S.pwErr="";}
+    else{S.pwErr="비밀번호가 올바르지 않아요.";render();return;}
+    render();startListeners();
+  }
+  pinp.addEventListener("keydown",e=>{if(e.key==="Enter")tryLogin();});
+  return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
+    D({background:"#fff",borderRadius:"24px",padding:"36px 32px",width:"320px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"},
+      el("img",{src:"awana.png",style:{height:"90px",objectFit:"contain",marginBottom:"8px"}}),
+      D({fontWeight:"700",fontSize:"15px",color:"#1E293B",marginBottom:"20px"},"활동 기록"),
+      pinp,
+      S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null,
+      B({width:"100%",background:"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"15px",cursor:"pointer"},tryLogin,"입장하기"),
+      D({marginTop:"20px",paddingTop:"16px",borderTop:"1px solid #F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px"},
+        el("img",{src:"https://sydc.net/image/subD/info/ci_logo.jpg",style:{height:"28px",objectFit:"contain"}}),
+        D({fontSize:"11px",color:"#94A3B8"},"서울영동교회 어와나")
+      )
+    )
+  );
+}
+
+// ── 앱 ──
+function buildApp(){
+  const tabs=S.role==="general"?[["handbook","📖 핸드북"]]:S.role==="game"?[["game","🎮 게임"],["result","🏆 결과"]]:[["handbook","📖 핸드북"],["game","🎮 게임"],["result","🏆 결과"]];
+  if(!tabs.find(([id])=>id===S.tab)) S.tab=tabs[0][0];
+  const locked=isLocked();
+  const isAdmin=S.role==="admin";
+
+  // 헤더
+  const visWeeks=isAdmin?WEEKS:WEEKS.filter(w=>!S.closedWeeks.includes(w));
+  const safeWeeks=visWeeks.length?visWeeks:[S.week];
+  if(!safeWeeks.includes(S.week)){S.week=safeWeeks[0];listenWeek(S.week);}
+  const weekLabel=w=>w===0?"🧪 테스트":`${w}주차 ${WEEK_DATES[w]}`;
+
+  const header=D({background:"#1E293B",color:"#fff",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"},
+    D({},
+      D({fontWeight:"700",fontSize:"14px",lineHeight:"1.2"},"서울영동교회 어와나"),
+      D({fontSize:"11px",color:"#94A3B8",marginTop:"1px"},isAdmin?"관리자":S.role==="game"?"게임":"일반")
+    ),
+    D({display:"flex",gap:"6px",alignItems:"center"},
+      sel(safeWeeks.map(w=>[String(w),weekLabel(w)]),String(S.week),v=>{S.week=Number(v);S.selHb=null;listenWeek(S.week);render();},{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}),
+      isAdmin?B({background:locked?"#F59E0B":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"12px",cursor:"pointer"},toggleLock,locked?"🔒":"🔓"):null,
+      isAdmin?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"13px",cursor:"pointer"},()=>{S.showSettings=true;S.stTab="students";render();},"⚙️"):null,
+      B({background:"#475569",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"11px",cursor:"pointer"},()=>{S.role=null;if(wUnsub)wUnsub();render();},"로그아웃")
+    )
+  );
+
+  const lockBanner=locked?D({background:"#FFF7ED",borderBottom:"3px solid #F59E0B",padding:"8px 16px",fontSize:"12px",color:"#92400E",display:"flex",alignItems:"center",gap:"6px"},
+    SP({fontSize:"14px"},"🔒"),`${S.week===0?"테스트 주차":`${S.week}주차 (${WEEK_DATES[S.week]})`}는 마감된 주차입니다.`
+  ):null;
+
+  const tabBar=D({display:"flex",background:"#fff",borderBottom:"1px solid #E2E8F0"},
+    ...tabs.map(([id,label])=>B({flex:"1",padding:"12px 0",border:"none",background:"none",cursor:"pointer",fontWeight:S.tab===id?"700":"400",fontSize:"13px",color:S.tab===id?"#3B82F6":"#64748B",borderBottom:S.tab===id?"2px solid #3B82F6":"2px solid transparent"},()=>{S.tab=id;S.selHb=null;render();},label))
+  );
+
+  const sorted=[...TEAMS].sort((a,b)=>totalScore(b.id)-totalScore(a.id));
+  return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
+    header,lockBanner,tabBar,
+    D({padding:"16px"},S.tab==="handbook"?buildHb():S.tab==="game"?buildGame():buildResult(sorted)),
+    isAdmin&&S.showSettings?buildSettings():null,
+    S.ceremony?buildCeremony():null,
+    S.awardPopup?buildAwardPopup():null
+  );
+}
+
+// ════════════════════════════════════
+//  핸드북 탭
+// ════════════════════════════════════
+function buildHb(){return S.selHb?buildHbDetail(S.selHb):buildHbList();}
+
+function buildHbList(){
+  if(!S.students.length) return D({textAlign:"center",color:"#94A3B8",padding:"40px"},D({fontSize:"32px",marginBottom:"8px"},"📋"),D({},"설정에서 학생을 등록해주세요"));
+  return D({},
+    D({fontWeight:"600",fontSize:"15px",marginBottom:"12px"},`${S.week===0?"테스트":""+S.week+"주차"} 핸드북`),
+    ...HB_GROUPS.map(group=>{
+      const books=group.books.filter(hb=>S.students.some(s=>s.handbook===hb));if(!books.length) return null;
+      const tbl=document.createElement("table");
+      Object.assign(tbl.style,{width:"100%",borderCollapse:"collapse",marginBottom:"12px",borderRadius:"12px",overflow:"hidden",border:`1px solid ${group.border}`});
+      books.forEach((hb,i)=>{
+        const hs=hbStu(hb),wd=getWD();
+        const att=hs.filter(s=>(wd.students?.[s.id]||{}).attendance).length;
+        const uni=hs.filter(s=>(wd.students?.[s.id]||{}).uniform).length;
+        const pts=hs.reduce((s,st)=>s+stuScore(st.id),0);
+        const tr=document.createElement("tr");
+        if(i===0){const td=document.createElement("td");td.rowSpan=books.length;Object.assign(td.style,{background:group.light,color:group.color,fontWeight:"800",fontSize:"14px",textAlign:"center",padding:"12px 8px",width:"48px",borderRight:`2px solid ${group.border}`,verticalAlign:"middle"});const inn=document.createElement("div");Object.assign(inn.style,{writingMode:"vertical-rl",transform:"rotate(180deg)"});inn.textContent=group.label;td.appendChild(inn);tr.appendChild(td);}
+        const td2=document.createElement("td");Object.assign(td2.style,{background:"#fff",padding:"0",borderBottom:i<books.length-1?`1px solid ${group.border}`:"none"});
+        const rb=document.createElement("button");Object.assign(rb.style,{width:"100%",background:"none",border:"none",padding:"11px 14px",textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"});
+        rb.addEventListener("click",()=>{S.selHb=hb;render();});
+        const L=document.createElement("div");L.style.fontWeight="700";L.style.fontSize="13px";L.textContent="📘 "+hb;
+        const R=document.createElement("div");Object.assign(R.style,{display:"flex",gap:"8px",fontSize:"11px",color:"#64748B",alignItems:"center"});
+        R.innerHTML=`<span>👤${hs.length}</span><span>✅${att}/${hs.length}</span><span>👕${uni}/${hs.length}</span><span style="font-weight:700;color:${group.color}">${pts.toLocaleString()}점</span>`;
+        rb.appendChild(L);rb.appendChild(R);td2.appendChild(rb);tr.appendChild(td2);tbl.appendChild(tr);
+      });
+      return tbl;
+    }).filter(Boolean),
+    D({background:"#fff",borderRadius:"12px",border:"1px solid #E2E8F0",padding:"14px"},
+      D({fontWeight:"600",fontSize:"13px",color:"#475569",marginBottom:"8px"},"팀별 핸드북 합계"),
+      ...TEAMS.map((t,i)=>D({display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<3?"1px solid #F1F5F9":"none"},
+        SP({color:t.color,fontWeight:"600",fontSize:"13px"},`● ${t.name}팀`),
+        SP({fontWeight:"700",fontSize:"13px"},teamHb(t.id).toLocaleString(),"점")
+      ))
+    )
+  );
+}
+
+function buildHbDetail(hb){
+  const locked=isLocked(),attAll=allChecked(hb,"attendance"),uniAll=allChecked(hb,"uniform");
+  return D({},
+    D({display:"flex",alignItems:"center",gap:"10px",marginBottom:"14px"},
+      B({background:"#F1F5F9",border:"none",borderRadius:"8px",padding:"6px 12px",cursor:"pointer",fontSize:"13px",fontWeight:"600"},()=>{S.selHb=null;render();},"← 뒤로"),
+      D({fontWeight:"700",fontSize:"15px"},`📘 ${hb}`)
+    ),
+    !locked?D({display:"flex",gap:"8px",marginBottom:"14px"},
+      B({flex:"1",background:attAll?"#22C55E":"#F1F5F9",color:attAll?"#fff":"#475569",border:"none",borderRadius:"10px",padding:"10px 0",fontWeight:"700",fontSize:"13px",cursor:"pointer"},()=>bulkCheck(hb,"attendance",!attAll),"✅ 전체 출석 ",attAll?"해제":"체크"),
+      B({flex:"1",background:uniAll?"#3B82F6":"#F1F5F9",color:uniAll?"#fff":"#475569",border:"none",borderRadius:"10px",padding:"10px 0",fontWeight:"700",fontSize:"13px",cursor:"pointer"},()=>bulkCheck(hb,"uniform",!uniAll),"👕 전체 단복 ",uniAll?"해제":"체크")
+    ):null,
+    ...hbStu(hb).map(s=>{
+      const d=getSD(s.id),t=getTeam(s.team);
+      return D({background:"#fff",borderRadius:"12px",border:`1px solid ${t.border}`,padding:"14px",marginBottom:"10px"},
+        D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
+          D({display:"flex",alignItems:"center",gap:"6px"},
+            SP({fontWeight:"700",fontSize:"14px"},s.name),
+            SP({marginLeft:"4px",fontSize:"11px",background:t.light,color:t.color,borderRadius:"6px",padding:"2px 7px",fontWeight:"600"},`● ${t.name}`),
+            B({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"6px",padding:"2px 8px",fontSize:"11px",cursor:"pointer",color:"#64748B"},
+              ()=>{S.awardPopup={sid:s.id,name:s.name,hb};render();},"🏅")
+          ),
+          SP({fontWeight:"800",color:t.color,fontSize:"16px"},stuScore(s.id),"점")
+        ),
+        D({display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",opacity:locked?"0.6":"1"},
+          B({display:"flex",alignItems:"center",gap:"5px",padding:"7px 12px",borderRadius:"8px",border:`1px solid ${d.attendance?t.color:"#E2E8F0"}`,background:d.attendance?t.light:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"600",color:d.attendance?t.color:"#94A3B8"},()=>setSD(s.id,{attendance:!d.attendance}),d.attendance?"✅":"☐"," 출석"),
+          B({display:"flex",alignItems:"center",gap:"5px",padding:"7px 12px",borderRadius:"8px",border:`1px solid ${d.uniform?t.color:"#E2E8F0"}`,background:d.uniform?t.light:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"600",color:d.uniform?t.color:"#94A3B8"},()=>setSD(s.id,{uniform:!d.uniform}),d.uniform?"✅":"☐"," 단복"),
+          D({marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px"},
+            SP({fontSize:"12px",color:"#64748B"},"사인"),
+            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #FECACA",background:"#FEF2F2",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#EF4444"},()=>setSD(s.id,{signs:Math.max(0,Math.round(((d.signs||0)-1)*10)/10)}),"-1"),
+            SP({minWidth:"28px",textAlign:"center",fontWeight:"700",fontSize:"16px"},d.signs||0),
+            B({width:"36px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#fff",cursor:locked?"not-allowed":"pointer",fontSize:"12px",fontWeight:"700",color:"#3B82F6"},()=>setSD(s.id,{signs:Math.round(((d.signs||0)+0.5)*10)/10}),"+0.5"),
+            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#fff",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#3B82F6"},()=>setSD(s.id,{signs:(d.signs||0)+1}),"+1"),
+            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #BFDBFE",background:"#EFF6FF",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#3B82F6"},()=>setSD(s.id,{signs:(d.signs||0)+3}),"+3")
+          )
+        )
+      );
+    })
+  );
+}
+
+// ════════════════════════════════════
+//  게임 탭
+// ════════════════════════════════════
+function buildGame(){
+  const wd=getWD(),fin=wd.gameFinalized,locked=isLocked();
+  return D({},
+    D({display:"flex",gap:"8px",marginBottom:"14px"},
+      ...[["sparks","🔥 스팍스"],["tnt","💥 티앤티"]].map(([t,l])=>
+        B({flex:"1",padding:"10px 0",borderRadius:"10px",border:"none",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:S.gameTab===t?"#1E293B":"#F1F5F9",color:S.gameTab===t?"#fff":"#64748B"},()=>{S.gameTab=t;render();},l)
+      )
+    ),
+    !locked?D({marginBottom:"12px"},
+      !fin?B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(true),"🏁 전체 게임 결과 확정")
+          :B({width:"100%",background:"#64748B",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(false),"↩️ 확정 취소")
+    ):null,
+    fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},"✅ 게임 결과 확정됨"):null,
+    buildGameType(S.gameTab,wd,fin,locked)
+  );
+}
+function buildGameType(type,wd,fin,locked){
+  const game=wd.games?.[type]||initGame(1);
+  return D({},
+    !fin&&!locked?B({width:"100%",background:"#F8FAFC",border:"2px dashed #CBD5E1",borderRadius:"10px",padding:"10px 0",color:"#64748B",fontWeight:"600",fontSize:"13px",cursor:"pointer",marginBottom:"14px"},
+      ()=>setGame(type,g=>({...g,rounds:[...g.rounds,initRound(g.rounds.length+1)]})),
+      "+ 새 라운드 추가"):null,
+    ...[...game.rounds].reverse().map((round,ri)=>D({},
+      ri>0?D({borderTop:"2px dashed #E2E8F0",margin:"14px 0"}):null,
+      D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
+        D({fontWeight:"700",fontSize:"14px"},`🏁 ${round.name}`),
+        !fin&&!locked?B({background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:"12px"},()=>{const n=prompt("라운드 이름:",round.name);if(n)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,name:n}:r)}));},"✏️"):null
+      ),
+      D({display:"grid",gap:"10px",marginBottom:"10px"},
+        ...TEAMS.map(t=>D({background:"#fff",borderRadius:"12px",border:`1px solid ${t.border}`,padding:"12px 14px"},
+          D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"},
+            SP({fontWeight:"600",color:t.color,fontSize:"13px"},`● ${t.name}팀`),
+            SP({fontWeight:"700",color:t.color},(round.scores?.[t.id]||0).toLocaleString(),"점")
+          ),
+          D({display:"flex",gap:"5px",flexWrap:"wrap",opacity:locked?"0.5":"1"},
+            ...[50,100,200,300,400].map(sc=>B({padding:"5px 10px",borderRadius:"8px",border:`1px solid ${t.border}`,background:t.light,color:t.color,fontWeight:"600",fontSize:"12px",cursor:(fin||locked)?"not-allowed":"pointer"},()=>{if(!fin&&!locked)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,scores:{...r.scores,[t.id]:(r.scores?.[t.id]||0)+sc}}:r)}));},`+${sc}`)),
+            B({padding:"5px 10px",borderRadius:"8px",border:"1px solid #FECACA",background:"#FEF2F2",color:"#EF4444",fontWeight:"600",fontSize:"12px",cursor:(fin||locked)?"not-allowed":"pointer"},()=>{if(!fin&&!locked)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,scores:{...r.scores,[t.id]:Math.max(0,(r.scores?.[t.id]||0)-50)}}:r)}));},"−50")
+          )
+        ))
+      )
+    )),
+    D({background:"#fff",borderRadius:"12px",border:"1px solid #E2E8F0",padding:"14px",marginTop:"14px"},
+      D({fontWeight:"600",fontSize:"13px",color:"#475569",marginBottom:"8px"},"누적 순위"),
+      ...[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id)).map((t,i)=>D({display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:i<3?"1px solid #F1F5F9":"none"},
+        SP({color:i===0?"#EAB308":"#64748B",fontWeight:i===0?"700":"400"},["🥇","🥈","🥉","4️⃣"][i]," ",t.name,"팀"),
+        SP({fontWeight:"600",color:t.color},gameCum(type,t.id).toLocaleString(),"점")
+      ))
+    )
+  );
+}
+
+// ════════════════════════════════════
+//  결과 탭
+// ════════════════════════════════════
+function buildResult(sorted){
+  const wd=getWD();
+  return D({},
+    D({fontWeight:"600",fontSize:"15px",marginBottom:"12px"},`${S.week===0?"테스트":""+S.week+"주차"} 최종 결과`),
+    ...sorted.map((t,i)=>D({background:"#fff",borderRadius:"12px",border:`2px solid ${i===0?t.color:t.border}`,padding:"16px",marginBottom:"10px"},
+      D({display:"flex",justifyContent:"space-between",alignItems:"center"},
+        D({display:"flex",alignItems:"center",gap:"8px"},SP({fontSize:"20px"},["🥇","🥈","🥉","4️⃣"][i]),SP({fontWeight:"700",color:t.color,fontSize:"15px"},t.name,"팀")),
+        SP({fontWeight:"800",fontSize:"18px",color:t.color},totalScore(t.id).toLocaleString(),"점")
+      ),
+      D({marginTop:"8px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px",fontSize:"12px",color:"#64748B"},
+        SP({},"📖 ",teamHb(t.id).toLocaleString(),"점"),
+        SP({},"🔥 ",wd.gameFinalized?rankScores("sparks")[t.id]+"점":"미확정"),
+        SP({},"💥 ",wd.gameFinalized?rankScores("tnt")[t.id]+"점":"미확정")
+      )
+    )),
+    !wd.gameFinalized?D({background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:"10px",padding:"12px",marginBottom:"12px",fontSize:"13px",color:"#EA580C"},"⚠️ 게임 결과가 아직 확정되지 않았습니다."):null,
+    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginTop:"8px"},()=>startCeremony(),"🎬 시상식 공개"):null
+  );
+}
+
+
+
+// ════════════════════════════════════
+//  시상식
+// ════════════════════════════════════
+function buildCeremony(){
+  const sorted=[...TEAMS].sort((a,b)=>totalScore(b.id)-totalScore(a.id));
+  const rl=["🥇 1위","🥈 2위","🥉 3위","4위"];
+  const last=S.cRevealed.length>0&&S.cRevealed.length<4?TEAMS.find(t=>t.id===S.cRevealed[S.cRevealed.length-1]):null;
+  const banner=last?(()=>{const r=sorted.findIndex(t=>t.id===last.id);const b=D({background:"rgba(255,255,255,0.1)",borderRadius:"16px",padding:"16px 24px",marginBottom:"16px",textAlign:"center",border:"1px solid rgba(255,255,255,0.2)"},D({fontSize:"12px",color:"#94A3B8",marginBottom:"4px"},rl[r]),D({fontSize:"20px",fontWeight:"800",color:"#fff"},last.name,"팀!"));b.className="fade-in-up";return b;})():null;
+  return D({position:"fixed",inset:"0",background:"linear-gradient(135deg,#0F172A,#1E1B4B,#0F172A)",zIndex:"200",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",overflow:"hidden"},
+    el("div",{id:"cconf",style:{position:"absolute",inset:"0",pointerEvents:"none",overflow:"hidden"}}),
+    D({textAlign:"center",marginBottom:"32px",zIndex:"1"},
+      D({fontSize:"13px",color:"#94A3B8",marginBottom:"8px",letterSpacing:"3px"},"✨ AWANA 시상식 ✨"),
+      D({fontSize:"22px",fontWeight:"800",color:"#fff"},`${S.week===0?"테스트":""+S.week+"주차"} 최종 순위`)
+    ),
+    D({display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px",width:"100%",maxWidth:"400px",padding:"0 20px",marginBottom:"24px",zIndex:"1"},
+      ...sorted.map(t=>{
+        const rev=S.cRevealed.includes(t.id),rank=sorted.findIndex(x=>x.id===t.id);
+        const card=D({background:rev?t.grad:"rgba(255,255,255,0.05)",borderRadius:"16px",padding:"16px",textAlign:"center",border:rev?"none":"1px solid rgba(255,255,255,0.1)",position:"relative"},
+          rev?D({fontSize:"20px",marginBottom:"4px"},["🥇","🥈","🥉","4️⃣"][rank]):D({fontSize:"28px",marginBottom:"4px"},"❓"),
+          D({fontSize:"14px",fontWeight:"700",color:rev?"#fff":"#64748B",marginBottom:"4px"},rev?t.name+"팀":"???"),
+          D({fontSize:"22px",fontWeight:"800",color:rev?"#fff":"#334155"},rev?S.cScores[t.id].toLocaleString():"----"),
+          rev&&rank===0?D({position:"absolute",top:"6px",right:"8px",fontSize:"18px"},"👑"):null
+        );
+        if(rev) card.className="reveal-card";
+        return card;
+      })
+    ),
+    banner,
+    B({background:"rgba(255,255,255,0.1)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"12px",padding:"12px 32px",fontWeight:"700",fontSize:"14px",cursor:"pointer",zIndex:"1"},()=>{S.ceremony=false;render();},"닫기")
+  );
+}
+
+// ════════════════════════════════════
+//  설정 모달
+// ════════════════════════════════════
+function buildSettings(){
+  const tabs=[["students","👤 학생"],["score","🏆 점수"],["password","🔒 비밀번호"],["stats","📊 통계"]];
+  return D({position:"fixed",inset:"0",background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:"100"},
+    D({background:"#fff",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:"480px",maxHeight:"90vh",overflowY:"auto"},
+      D({padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"},
+        D({fontWeight:"700",fontSize:"16px"},"⚙️ 설정"),
+        B({background:"none",border:"none",fontSize:"20px",cursor:"pointer",color:"#64748B"},()=>{S.showSettings=false;render();},"×")
+      ),
+      D({display:"flex",borderBottom:"1px solid #E2E8F0",margin:"12px 0 0",padding:"0 16px"},
+        ...tabs.map(([id,label])=>B({padding:"10px",border:"none",background:"none",cursor:"pointer",fontWeight:S.stTab===id?"700":"400",fontSize:"12px",color:S.stTab===id?"#3B82F6":"#64748B",borderBottom:S.stTab===id?"2px solid #3B82F6":"2px solid transparent",whiteSpace:"nowrap"},()=>{S.stTab=id;render();},label))
+      ),
+      D({padding:"16px 20px 24px"},
+        S.stTab==="students"?buildStMgr():
+        S.stTab==="score"?buildScoreSet():
+        S.stTab==="password"?buildPwSet():buildStatsView()
+      )
+    )
+  );
+}
+
+// ── 학생 관리 ──
+function buildStMgr(){
+  const srch=inp("🔍 학생 이름 검색...",S.search,v=>{S.search=v;render();},{width:"100%",marginBottom:"12px",boxSizing:"border-box"});
+  const nameI=inp("이름",S.newSt.name,v=>{S.newSt.name=v;},{flex:"1"});
+  const teamS=sel(TEAMS.map(t=>[t.id,t.name]),S.newSt.team,v=>{S.newSt.team=v;},{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px 6px",fontSize:"13px"});
+  const hbS=sel(HANDBOOKS.map(h=>[h,h]),S.newSt.handbook,v=>{S.newSt.handbook=v;},{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px 6px",fontSize:"13px",flex:"1"});
+  const addRow=el("div",{style:{display:"grid",gridTemplateColumns:"1fr 60px 1fr 34px",gap:"6px",marginBottom:"12px"}},
+    nameI,teamS,hbS,
+    B({background:"#22C55E",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"18px"},async()=>{
+      if(!S.newSt.name.trim()) return;
+      S.students.push({id:`s_${Date.now()}`,name:S.newSt.name.trim(),team:S.newSt.team,handbook:S.newSt.handbook});
+      S.newSt={name:"",team:"red",handbook:"행글라이더"};
+      await saveStudents();render();
+    },"+")
+  );
+
+  // CSV 업로드
+  const fileI=document.createElement("input");
+  fileI.type="file";fileI.accept=".csv";fileI.style.display="none";
+  fileI.addEventListener("change",async e=>{
+    const f=e.target.files[0];if(!f) return;
+    const r=new FileReader();
+    r.onload=async ev=>{
+      const parsed=parseCSV(ev.target.result);
+      if(!parsed.length){alert("추가된 학생이 없어요.\n형식: 이름,팀명,핸드북");return;}
+      const ex=new Set(S.students.map(s=>s.name));
+      const newS=parsed.filter(s=>!ex.has(s.name));
+      const dup=parsed.filter(s=>ex.has(s.name)).map(s=>s.name);
+      const msg=dup.length?`⚠️ 중복 제외 (${dup.length}명)\n`:"";
+      if(!newS.length){alert(msg+"새로 추가된 학생이 없어요.");return;}
+      S.students=[...S.students,...newS];
+      await saveStudents();render();
+      alert(msg+`✅ ${newS.length}명 추가됐어요!`);
+    };
+    r.readAsText(f,"UTF-8");e.target.value="";
+  });
+
+  // 학생 목록
+  const listItems=HB_GROUPS.flatMap(group=>{
+    const books=group.books.filter(hb=>hbStu(hb).filter(s=>s.name.includes(S.search)).length>0);
+    if(!books.length) return [];
+    const gh=D({display:"flex",alignItems:"center",gap:"8px",margin:"12px 0 6px",padding:"6px 10px",background:group.light,borderRadius:"8px",border:`1px solid ${group.border}`},
+      SP({fontWeight:"800",color:group.color,fontSize:"13px"},group.label),
+      SP({fontSize:"11px",color:group.color},group.label==="Sparks"?"행글라이더 · 윙러너 · 스카이스토머":"어드벤처1~챌린지2")
+    );
+    const rows=books.flatMap(hb=>{
+      const filtered=hbStu(hb).filter(s=>s.name.includes(S.search));
+      if(!filtered.length) return [];
+      return [
+        D({fontWeight:"600",fontSize:"12px",color:"#475569",margin:"8px 0 4px",paddingLeft:"4px"},`📘 ${hb}`),
+        ...filtered.map(s=>{
+          const t=getTeam(s.team);
+          if(S.editSt?.id===s.id){
+            const es=S.editSt;
+            const en=inp("이름",es.name,v=>{S.editSt.name=v;},{flex:"1"});
+            const et=sel(TEAMS.map(x=>[x.id,x.name]),es.team,v=>{S.editSt.team=v;},{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"6px",fontSize:"12px"});
+            const eh=sel(HANDBOOKS.map(h=>[h,h]),es.handbook,v=>{S.editSt.handbook=v;},{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"6px",fontSize:"12px",flex:"1"});
+            return D({background:"#F8FAFC",borderRadius:"10px",padding:"10px",marginBottom:"4px",border:"1px solid #BFDBFE"},
+              D({display:"flex",gap:"6px",marginBottom:"6px"},en,et),
+              D({display:"flex",gap:"6px"},eh,
+                B({background:"#22C55E",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 12px",cursor:"pointer",fontWeight:"700",fontSize:"13px"},async()=>{S.students=S.students.map(x=>x.id===s.id?{...x,...S.editSt}:x);S.editSt=null;await saveStudents();render();},"저장"),
+                B({background:"#F1F5F9",border:"none",borderRadius:"8px",padding:"6px 12px",cursor:"pointer",fontSize:"13px"},()=>{S.editSt=null;render();},"취소")
+              )
+            );
+          }
+          return D({display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:t.light,borderRadius:"8px",marginBottom:"4px",borderLeft:`3px solid ${group.color}`},
+            D({fontSize:"13px"},SP({fontWeight:"600"},s.name),SP({marginLeft:"8px",color:t.color,fontSize:"12px"},`● ${t.name}`)),
+            D({display:"flex",gap:"4px"},
+              B({background:"none",border:"1px solid #E2E8F0",borderRadius:"6px",color:"#3B82F6",cursor:"pointer",fontSize:"12px",padding:"3px 8px"},()=>{S.editSt={...s};render();},"✏️"),
+              B({background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:"18px"},async()=>{S.students=S.students.filter(x=>x.id!==s.id);await saveStudents();render();},"×")
+            )
+          );
+        })
+      ];
+    });
+    return [gh,...rows];
+  });
+
+  return D({},
+    srch,
+    D({fontWeight:"600",fontSize:"13px",color:"#475569",marginBottom:"8px",display:"flex",justifyContent:"space-between",alignItems:"center"},
+      SP({},"학생 추가"),
+      D({display:"flex",alignItems:"center",gap:"6px"},
+        SP({fontSize:"11px",color:"#94A3B8"},`총 ${S.students.length}명`),
+        B({background:"#F59E0B",color:"#fff",border:"none",borderRadius:"6px",padding:"4px 10px",cursor:"pointer",fontSize:"11px",fontWeight:"600"},async()=>{
+          if(!confirm("학생 명단을 기본 37명으로 초기화할까요?\n기존 데이터가 모두 삭제됩니다.")) return;
+          S.students=[...SEED];await saveStudents();render();alert("✅ 초기화 완료!");
+        },"🔄 초기화"),
+        B({background:"#F1F5F9",color:"#475569",border:"1px solid #E2E8F0",borderRadius:"6px",padding:"4px 10px",cursor:"pointer",fontSize:"11px"},()=>fileI.click(),"📁 CSV"),
+        fileI
+      )
+    ),
+    addRow,
+    ...listItems,
+    !S.students.length?D({textAlign:"center",color:"#94A3B8",padding:"20px",fontSize:"13px"},"등록된 학생이 없어요 → 🔄 초기화 버튼을 눌러주세요"):null
+  );
+}
+
+// ── 점수 설정 ──
+function buildScoreSet(){
+  const si=S.settingsInput;
+  const mk=(label,key)=>D({marginBottom:"10px"},D({fontSize:"13px",color:"#64748B",marginBottom:"4px"},label),inp("",si[key],v=>{S.settingsInput[key]=Number(v);render();},{width:"100%",boxSizing:"border-box"},"number"));
+  // 주차 초기화
+  const wsel=sel(WEEKS.map(w=>[String(w),w===0?"🧪 테스트":`${w}주차 (${WEEK_DATES[w]})`]),String(S.week),()=>{},{width:"100%",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px 10px",fontSize:"13px",boxSizing:"border-box",marginBottom:"8px"});
+  return D({},
+    D({fontWeight:"600",fontSize:"13px",color:"#1E293B",marginBottom:"10px",paddingBottom:"8px",borderBottom:"1px solid #F1F5F9"},"📖 핸드북 점수"),
+    mk("출석 점수","attScore"),mk("단복 점수","uniScore"),mk("암송 사인 1개 점수","signScore"),
+    D({fontWeight:"600",fontSize:"13px",color:"#1E293B",margin:"12px 0 10px",paddingBottom:"8px",borderBottom:"1px solid #F1F5F9"},"🏆 게임 순위 점수"),
+    mk("1등 순위 점수","firstPlace"),mk("등수 간 점수 차이","gap"),
+    D({fontSize:"12px",color:"#94A3B8",marginBottom:"16px",background:"#F8FAFC",borderRadius:"8px",padding:"10px"},
+      `1등 ${si.firstPlace}점 / 2등 ${si.firstPlace-si.gap}점 / 3등 ${si.firstPlace-si.gap*2}점 / 4등 ${si.firstPlace-si.gap*3}점`
+    ),
+    B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",cursor:"pointer",marginBottom:"24px"},async()=>{S.settings={...S.settingsInput};await saveSettings();alert("저장됐어요!");},"저장"),
+    D({borderTop:"1px solid #E2E8F0",paddingTop:"20px"},
+      D({fontWeight:"600",fontSize:"14px",color:"#1E293B",marginBottom:"4px"},"🗑️ 주차 데이터 초기화"),
+      D({fontSize:"12px",color:"#94A3B8",marginBottom:"12px"},"선택한 주차의 출석·게임 데이터를 모두 삭제합니다."),
+      wsel,
+      B({width:"100%",background:"#EF4444",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",cursor:"pointer"},async()=>{
+        const w=Number(wsel.value),label=w===0?"테스트 주차":`${w}주차`;
+        if(!confirm(`${label} 데이터를 초기화할까요?`)) return;
+        await resetWeekData(w);alert(`✅ ${label} 초기화 완료!`);
+      },"선택 주차 초기화")
+    )
+  );
+}
+
+// ── 비밀번호 설정 ──
+function buildPwSet(){
+  let pw={...S.passwords};
+  return D({},
+    ...[["general","일반 비밀번호"],["game","게임 비밀번호"],["admin","관리자 비밀번호"]].map(([k,l])=>
+      D({marginBottom:"12px"},D({fontSize:"13px",color:"#64748B",marginBottom:"4px"},l),inp("",pw[k],v=>pw[k]=v,{width:"100%",boxSizing:"border-box"}))
+    ),
+    D({fontSize:"12px",color:"#F59E0B",background:"#FFFBEB",borderRadius:"8px",padding:"10px",marginBottom:"16px"},"⚠️ 변경 후 즉시 적용됩니다."),
+    B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",cursor:"pointer"},async()=>{S.passwords=pw;await saveSettings();alert("저장됐어요!");},"저장")
+  );
+}
+
+// ── 통계 ──
+function buildStatsView(){
+  return D({},
+    D({fontWeight:"600",fontSize:"14px",marginBottom:"12px",color:"#1E293B"},"팀 통계"),
+    ...TEAMS.map(t=>{
+      const w1=Object.keys(S.wdata).filter(w=>{const wd=S.wdata[w];if(!wd?.gameFinalized)return false;return[...TEAMS].sort((a,b)=>{const calc=(tid,w2)=>{const d2=S.wdata[w2];const hb=S.students.filter(s=>s.team===tid).reduce((s2,st)=>{const d=(d2?.students||{})[st.id]||{};const{attScore:a=50,uniScore:u=50,signScore:sg=50}=S.settings;return s2+(d.attendance?a:0)+(d.uniform?u:0)+((d.signs||0)*sg);},0);if(!d2?.gameFinalized)return hb;let g=0;["sparks","tnt"].forEach(type=>{const rounds=(d2.games?.[type]?.rounds)||[];const cum={};TEAMS.forEach(x=>{cum[x.id]=rounds.reduce((s3,r)=>s3+(r.scores?.[x.id]||0),0);});const si=[...TEAMS].sort((x,y)=>cum[y.id]-cum[x.id]);const ri=si.findIndex(x=>x.id===tid);g+=Math.max(0,S.settings.firstPlace-ri*S.settings.gap);});return hb+g;};return calc(b.id,w)-calc(a.id,w);})[0]?.id===t.id;}).length;
+      const cumHb=Object.values(S.wdata).reduce((sum,wd2)=>sum+S.students.filter(s=>s.team===t.id).reduce((s2,st)=>{const d=(wd2?.students||{})[st.id]||{};const{attScore:a=50,uniScore:u=50,signScore:sg=50}=S.settings;return s2+(d.attendance?a:0)+(d.uniform?u:0)+((d.signs||0)*sg);},0),0);
+      return D({background:t.light,borderRadius:"10px",padding:"12px 14px",marginBottom:"10px",border:`1px solid ${t.border}`},
+        D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
+          SP({fontWeight:"700",color:t.color,fontSize:"15px"},`● ${t.name}팀`),
+          D({display:"flex",gap:"8px",fontSize:"13px",fontWeight:"700"},SP({},"🥇 ",w1,"회"))
+        ),
+        D({fontSize:"12px",color:"#64748B"},"누적 핸드북: ",cumHb.toLocaleString(),"점 | 학생 ",S.students.filter(s=>s.team===t.id).length,"명")
+      );
+    }),
+    D({fontWeight:"600",fontSize:"14px",margin:"16px 0 12px",color:"#1E293B"},"학생 통계"),
+    ...S.students.map(s=>{
+      let tot=0,att=0,uni=0,signs=0;
+      Object.values(S.wdata).forEach(wd2=>{const d=(wd2?.students||{})[s.id]||{};const{attScore:a=50,uniScore:u=50,signScore:sg=50}=S.settings;if(d.attendance){tot+=a;att++;}if(d.uniform){tot+=u;uni++;}tot+=(d.signs||0)*sg;signs+=(d.signs||0);});
+      const t=getTeam(s.team);
+      return D({background:t.light,borderRadius:"10px",padding:"10px 12px",marginBottom:"8px",border:`1px solid ${t.border}`},
+        D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px"},
+          D({},SP({fontWeight:"700",fontSize:"13px"},s.name),SP({marginLeft:"6px",fontSize:"11px",color:t.color},`● ${t.name}`),SP({marginLeft:"6px",fontSize:"11px",color:"#94A3B8"},s.handbook)),
+          SP({fontWeight:"800",color:t.color,fontSize:"14px"},tot.toLocaleString(),"점")
+        ),
+        D({display:"flex",gap:"10px",fontSize:"11px",color:"#64748B"},SP({},"출석 ",att,"회"),SP({},"단복 ",uni,"회"),SP({},"사인 ",signs,"개"))
+      );
+    }),
+    !S.students.length?D({textAlign:"center",color:"#94A3B8",padding:"20px",fontSize:"13px"},"등록된 학생이 없어요"):null
+  );
+}
+
+// 앱 시작 시 로그인 전에 settings 먼저 로딩 (로딩 데드락 방지)
+onSnapshot(doc(db,"awana","settings"),snap=>{
+  if(snap.exists()){
+    const d=snap.data();
+    S.settings={firstPlace:d.firstPlace||800,gap:d.gap||100,attScore:d.attScore||50,uniScore:d.uniScore||50,signScore:d.signScore||50};
+    S.settingsInput={...S.settings};
+    if(d.passwords) S.passwords=d.passwords;
+    S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
+  }
+  if(!S.loaded){ S.loaded=true; render(); }
+});
+// 5초 안에 Firebase 응답 없으면 강제로 로그인 화면 표시
+setTimeout(()=>{ if(!S.loaded){ S.loaded=true; render(); } }, 5000);
+render();
+</script>
+</body>
+</html>
