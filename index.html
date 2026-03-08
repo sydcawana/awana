@@ -580,7 +580,7 @@ function buildLogin(){
 
 // ── 앱 ──
 function buildApp(){
-  const tabs=S.role==="general"?[["schedule","📋 순서"],["handbook","📖 핸드북"],["awards","🏅 시상"]]:[["schedule","📋 순서"],["handbook","📖 핸드북"],["game","🏃 경기"],["awards","🏅 시상"]];
+  const tabs=S.role==="general"?[["schedule","📋 진행"],["handbook","📖 핸드북"],["awards","🏅 시상"]]:  [["schedule","📋 진행"],["handbook","📖 핸드북"],["game","🏃 경기"],["awards","🏅 시상"]];
   if(!tabs.find(([id])=>id===S.tab)) S.tab=tabs[0][0];
   const locked=isLocked();
   const isAdmin=S.role==="admin";
@@ -750,12 +750,12 @@ function buildGame(){
       })
     ),
     !locked?D({display:"flex",gap:"8px",marginBottom:"12px"},
-      !fin
-        ?B({flex:"1",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(true),"🏆 경기 결과 확정")
-        :B({flex:"1",background:"#64748B",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(false),"↩️ 확정 취소"),
-      !fin?B({background:"#F8FAFC",border:"2px dashed #CBD5E1",borderRadius:"10px",padding:"12px 16px",color:"#64748B",fontWeight:"600",fontSize:"13px",cursor:"pointer",whiteSpace:"nowrap"},
+      !fin?B({flex:"1",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},
         ()=>setGame(S.gameTab,g=>({...g,rounds:[...g.rounds,initRound(g.rounds.length+1)]})),
-        "+ 라운드"):null
+        "+ 라운드"):null,
+      !fin
+        ?B({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"12px 16px",color:"#64748B",fontWeight:"600",fontSize:"13px",cursor:"pointer",whiteSpace:"nowrap"},()=>setFinalized(true),"🏆 확정")
+        :B({flex:"1",background:"#64748B",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(false),"↩️ 확정 취소")
     ):null,
     fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},"✅ 경기 결과 확정됨"):null,
     buildGameType(S.gameTab,wd,fin,locked)
@@ -1244,7 +1244,7 @@ function buildCeremony(){
   );
 }
 function buildSettings(){
-  const tabs=[["students","👤 학생"],["schedule","📋 순서"],["config","⚙️ 설정"],["stats","📊 통계"]];
+  const tabs=[["students","👤 학생"],["schedule","📋 진행"],["config","⚙️ 설정"],["stats","📊 통계"]];
   // 설정 패널: 헤더 바로 아래 top-down, 전체 높이
   return D({position:"fixed",inset:"0",zIndex:"100",display:"flex",flexDirection:"column",maxWidth:"480px",margin:"0 auto"},
     // 딤 배경 (탭 바 아래만 어둡게)
@@ -1705,20 +1705,110 @@ setTimeout(()=>{ if(!S.loaded){ S.loaded=true; render(); } }, 5000);
 render();
 
 // ════════════════════════════════════
-//  순서 탭
+//  진행 탭
 // ════════════════════════════════════
 function buildSchedule(){
   const sc=S.schedule[String(S.week)];
+  const wd=getWD();
 
   function fmtPerson(role,name){
     if(!role||!name) return name||role||"-";
     if(role==="선생님"||role==="목사님"||role==="장로님") return name+" "+role;
-    return role+" "+name; // 학년
+    return role+" "+name;
   }
+
+  // 팀별 인원 섹션
+  const selTeam=S.scheduleTeam||"red";
+  const selT=TEAMS.find(t=>t.id===selTeam);
+  const teamStudents=S.students.filter(s=>s.team===selTeam);
+  const sparksHbs=["행글라이더","윙러너","스카이스토머"];
+  const tntHbs=["어드벤처1","어드벤처2","챌린지1","챌린지2"];
+  const sparksStudents=[...teamStudents.filter(s=>sparksHbs.includes(s.handbook))].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  const tntStudents=[...teamStudents.filter(s=>tntHbs.includes(s.handbook))].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+
+  function mkStudentRow(s){
+    const sd=wd.students?.[s.id]||{};
+    const att=sd.attendance, uni=sd.uniform;
+
+    const row=D({display:"flex",alignItems:"center",gap:"8px",
+      padding:"10px 12px",borderRadius:"10px",cursor:"pointer",
+      background:att?"#F0FDF4":"#F8FAFC",
+      border:`1px solid ${att?"#86EFAC":"#E2E8F0"}`,
+      transition:"background 0.15s"},
+      D({flex:"1",fontWeight:"600",fontSize:"14px",color:"#1E293B"},s.name),
+      D({fontSize:"12px",color:"#64748B"},s.handbook)
+    );
+
+    // 출석 뱃지 - 클릭 시 출석만 토글
+    const attBadge=att
+      ? D({fontSize:"11px",fontWeight:"700",color:"#22C55E",
+          background:"#DCFCE7",padding:"2px 8px",borderRadius:"20px",cursor:"pointer"},"출석")
+      : D({fontSize:"11px",color:"#CBD5E1",cursor:"pointer"},"미출석");
+    attBadge.addEventListener("click",async e=>{
+      e.stopPropagation();
+      await setSD(s.id,{attendance:!att});
+    });
+
+    // 단복 뱃지 - 클릭 시 단복만 토글
+    const uniBadge=uni
+      ? D({fontSize:"11px",fontWeight:"700",color:"#3B82F6",
+          background:"#DBEAFE",padding:"2px 8px",borderRadius:"20px",cursor:"pointer"},"단복")
+      : D({fontSize:"11px",color:"#E2E8F0",cursor:"pointer"},"단복");
+    uniBadge.addEventListener("click",async e=>{
+      e.stopPropagation();
+      await setSD(s.id,{uniform:!uni});
+    });
+
+    row.appendChild(attBadge);
+    row.appendChild(uniBadge);
+
+    // 행 클릭 = 출석+단복 동시 토글 (둘 다 켜거나 둘 다 끄기)
+    row.addEventListener("click",async()=>{
+      const next=!att;
+      await setSD(s.id,{attendance:next,uniform:next});
+    });
+
+    return row;
+  }
+
+  function mkClubHeader(type){
+    const icon=document.createElement("div");
+    icon.appendChild(type==="sparks"?mkSparksIcon(18):mkTntIcon(18));
+    const label=type==="sparks"?"스팍스":"티앤티";
+    return D({display:"flex",alignItems:"center",gap:"6px",
+      margin:"14px 0 8px",padding:"6px 0 6px",
+      borderBottom:"2px solid #E2E8F0"},
+      icon,
+      D({fontWeight:"700",fontSize:"13px",color:"#475569"},label)
+    );
+  }
+
+  const teamSection=D({marginTop:"18px"},
+    D({fontWeight:"600",fontSize:"15px",marginBottom:"10px",color:"#1E293B"},"팀별 인원"),
+    // 팀 선택
+    D({display:"flex",gap:"6px",marginBottom:"14px"},
+      ...TEAMS.map(t=>B({
+        flex:"1",padding:"8px 4px",borderRadius:"10px",fontWeight:"700",fontSize:"13px",
+        border:`2px solid ${selTeam===t.id?t.color:"#E2E8F0"}`,
+        background:selTeam===t.id?t.light:"#F8FAFC",
+        color:selTeam===t.id?t.color:"#94A3B8",cursor:"pointer"
+      },()=>{S.scheduleTeam=t.id;render();},t.name))
+    ),
+    // 스팍스 섹션
+    mkClubHeader("sparks"),
+    sparksStudents.length===0
+      ? D({fontSize:"13px",color:"#94A3B8",padding:"8px 4px"},"해당 학생이 없어요")
+      : D({display:"flex",flexDirection:"column",gap:"6px"},...sparksStudents.map(mkStudentRow)),
+    // 티앤티 섹션
+    mkClubHeader("tnt"),
+    tntStudents.length===0
+      ? D({fontSize:"13px",color:"#94A3B8",padding:"8px 4px"},"해당 학생이 없어요")
+      : D({display:"flex",flexDirection:"column",gap:"6px"},...tntStudents.map(mkStudentRow))
+  );
 
   return D({},
     mkWeekBadge(),
-    D({fontWeight:"600",fontSize:"15px",marginBottom:"14px",color:"#1E293B"},"이번 주 순서"),
+    D({fontWeight:"600",fontSize:"15px",marginBottom:"14px",color:"#1E293B"},"이번 주 진행 순서"),
     sc
       ? D({background:"#fff",borderRadius:"12px",border:"2px solid #E2E8F0",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
           D({},
@@ -1740,7 +1830,8 @@ function buildSchedule(){
             )
           )
         )
-      : D({textAlign:"center",padding:"40px 0",color:"#94A3B8",fontSize:"13px"},"이번 주 순서 정보가 없어요\n설정에서 입력해주세요")
+      : D({textAlign:"center",padding:"40px 0",color:"#94A3B8",fontSize:"13px"},"이번 주 순서 정보가 없어요\n설정에서 입력해주세요"),
+    teamSection
   );
 }
 
