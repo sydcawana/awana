@@ -126,7 +126,7 @@ const S = {
   students:[],
   wdata:{},
   closedWeeks:Array.from({length:15},(_,i)=>i+1), // 1~15 잠금, 0(테스트) 열림
-  ceremony:false, cScores:{red:0,yellow:0,green:0,blue:0}, cGameScores:{red:0,yellow:0,green:0,blue:0}, cRevealed:[], cBanner:"", _weekFocused:false, loaded:false,
+  ceremony:false, ceremonyReady:false, cScores:{red:0,yellow:0,green:0,blue:0}, cGameScores:{red:0,yellow:0,green:0,blue:0}, cRevealed:[], cBanner:"", _weekFocused:false, loaded:false,
   awardPopup:null, showStudents:false,
   hbTab:"sparks", awardsTab:"sparks", awardsOpenTeam:null, awardsSelTeam:"red", awardsSelHb:null, schedule:{}, configOpen:{score:false,att:false,pw:false,reset:false},
   statsOpen:{sparks:true,tnt:true},
@@ -313,10 +313,10 @@ function playDrum(){playSound("chime");}
 function playFanfare(isFirst){playSound(isFirst?"fanfare_big":"fanfare");}
 
 function startCeremony(){
-  S.ceremony=true;S.cRevealed=[];
+  S.ceremony=true;S.ceremonyReady=false;S.cRevealed=[];
   S.cScores={red:0,yellow:0,green:0,blue:0};
   S.cGameScores={red:0,yellow:0,green:0,blue:0};
-  S.cPhase="idle";S.cStep=0;S.cBanner="";
+  S.cPhase="ready";S.cStep=0;S.cBanner="";
   const targets={};TEAMS.forEach(t=>{targets[t.id]=totalScore(t.id);});
   S.cTargets=targets;
   S.cSorted=[...TEAMS].sort((a,b)=>totalScore(b.id)-totalScore(a.id));
@@ -325,7 +325,6 @@ function startCeremony(){
     S.cGameScores[t.id]=(rankScores("sparks")[t.id]||0)+(rankScores("tnt")[t.id]||0);
   });
   render();
-  setTimeout(()=>cNextStep(),400);
 }
 function cAnimate(fromScores,toScores,dur,onDone){
   const t0=Date.now();
@@ -344,48 +343,66 @@ function cNextStep(){
   const step=S.cStep;
   S.cPhase="animating";
   if(step===0){
-    S.cBanner="🎮 게임 점수";render();
+    S.cBanner="🏃 경기 점수";render();
     playSound("drumroll");
-    cAnimate({red:0,yellow:0,green:0,blue:0},S.cGameScores,2200,()=>{
+    cAnimate({red:0,yellow:0,green:0,blue:0},S.cGameScores,3200,()=>{
       S.cStep=1;S.cPhase="paused";render();
     });
   } else if(step===1){
+    // 4등 발표: 모든 팀이 4등 점수까지만 올라감
     S.cBanner="📖 암송 점수 추가!";render();
     playSound("drumroll");
     const rank4=S.cSorted[3];
     const stop4=rank4?S.cTargets[rank4.id]||0:0;
     const from={...S.cScores};
-    const to={};TEAMS.forEach(t=>{to[t.id]=Math.min(S.cTargets[t.id]||0,stop4);});
-    cAnimate(from,to,1800,()=>{
+    const to={};TEAMS.forEach(t=>{to[t.id]=Math.min(S.cTargets[t.id]||0, stop4);});
+    cAnimate(from,to,3200,()=>{
       S.cRevealed=[...S.cRevealed,S.cSorted[3].id];
       S.cStep=2;S.cPhase="paused";
       playSound("chime");render();
     });
   } else if(step===2){
+    // 3등 발표: 모든 팀이 3등 점수까지만 올라감 (1등/2등도 3등 점수 초과 안 함)
     S.cBanner="";render();
     playSound("drumroll");
     const rank3=S.cSorted[2];
     const stop3=rank3?S.cTargets[rank3.id]||0:0;
     const from={...S.cScores};
-    const to={};TEAMS.forEach(t=>{to[t.id]=Math.min(S.cTargets[t.id]||0,stop3);});
-    cAnimate(from,to,1800,()=>{
+    const to={};TEAMS.forEach(t=>{to[t.id]=Math.min(S.cTargets[t.id]||0, stop3);});
+    cAnimate(from,to,3200,()=>{
       S.cRevealed=[...S.cRevealed,S.cSorted[2].id];
       S.cStep=3;S.cPhase="paused";
       playSound("chime");render();
     });
   } else if(step===3){
+    // 1등/2등 팀이 2등 점수까지 올라가다 멈춤 (긴장감)
+    S.cBanner="";render();
+    playSound("drumroll");
+    const rank2=S.cSorted[1];
+    const stop2=rank2?S.cTargets[rank2.id]||0:0;
+    const from={...S.cScores};
+    const to={};TEAMS.forEach(t=>{to[t.id]=Math.min(S.cTargets[t.id]||0,stop2);});
+    cAnimate(from,to,3200,()=>{
+      S.cStep=4;S.cPhase="paused";
+      playSound("chime");render();
+      // 1.8초 자동 대기 후 1등 발표
+      setTimeout(()=>{if(S.cStep===4&&S.cPhase==="paused")cNextStep();},1800);
+    });
+  } else if(step===4){
+    // 1등 발표 - 1등 팀만 최종 점수까지 쭉 올라감
     S.cBanner="";render();
     playSound("drumroll");
     const from={...S.cScores};
-    const to={...S.cTargets};
-    cAnimate(from,to,2000,()=>{
+    const to={};TEAMS.forEach(t=>{to[t.id]=S.cTargets[t.id]||0;});
+    cAnimate(from,to,3200,()=>{
       S.cRevealed=[...S.cRevealed,S.cSorted[0].id];
-      S.cStep=4;S.cPhase="paused";
+      S.cStep=5;S.cPhase="paused";
       spawnConfetti();playSound("fanfare_big");render();
     });
-  } else if(step===4){
+  } else if(step===5){
+    // 2등 발표
     S.cRevealed=[...S.cRevealed,S.cSorted[1].id];
-    S.cStep=5;S.cPhase="done";
+    S.cStep=6;S.cPhase="done";
     playSound("fanfare");render();
   }
 }
@@ -394,21 +411,40 @@ function updateBarsDirect(){
   TEAMS.forEach(t=>{
     const bar=document.getElementById("cbar_"+t.id);
     const num=document.getElementById("cnum_"+t.id);
-    if(bar){bar.style.height=Math.max(4,Math.round((S.cScores[t.id]/maxScore)*240))+"px";}
+    if(bar){bar.style.height=Math.max(2,Math.round((S.cScores[t.id]/maxScore)*500))+"px";}
     if(num)num.textContent=S.cScores[t.id]>0?S.cScores[t.id].toLocaleString():"";
   });
 }
 function revealNext(){}
 function spawnConfetti(){
   const c=document.getElementById("cconf");if(!c) return;
-  ["#EF4444","#EAB308","#22C55E","#3B82F6","#fff","#ffd700"].forEach(col=>{
-    for(let i=0;i<14;i++){const d=document.createElement("div");const sz=6+Math.random()*10;Object.assign(d.style,{position:"absolute",width:sz+"px",height:sz+"px",background:col,borderRadius:Math.random()>.5?"50%":"2px",left:Math.random()*100+"%",top:"-20px",animation:`confettiFall ${1.5+Math.random()*2}s ease ${Math.random()*2}s forwards`});c.appendChild(d);}
+  c.innerHTML=""; // 이전 콘페티 제거
+  ["#EF4444","#EAB308","#22C55E","#3B82F6","#fff","#ffd700","#FF69B4","#FF8C00"].forEach(col=>{
+    for(let i=0;i<22;i++){
+      const d=document.createElement("div");
+      const sz=8+Math.random()*14;
+      Object.assign(d.style,{position:"absolute",width:sz+"px",height:sz+"px",
+        background:col,borderRadius:Math.random()>.4?"50%":"3px",
+        left:Math.random()*100+"%",top:"-20px",
+        animation:`confettiFall ${1.2+Math.random()*2.5}s ease ${Math.random()*1.5}s forwards`});
+      c.appendChild(d);
+    }
   });
 }
 
 // ════════════════════════════════════
 //  DOM 헬퍼
 // ════════════════════════════════════
+function showToast(msg="저장됨 ✔"){
+  const prev=document.getElementById("_toast");if(prev)prev.remove();
+  const t=document.createElement("div");t.id="_toast";
+  Object.assign(t.style,{position:"fixed",bottom:"72px",left:"50%",transform:"translateX(-50%)",
+    background:"#1E293B",color:"#fff",padding:"8px 20px",borderRadius:"20px",
+    fontSize:"13px",fontWeight:"700",zIndex:"9999",pointerEvents:"none",
+    whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,0.2)",transition:"opacity 0.4s"});
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";setTimeout(()=>t.remove(),400);},1500);
+}
 function el(tag,props={},...ch){
   const e=document.createElement(tag);
   Object.entries(props).forEach(([k,v])=>{
@@ -604,6 +640,7 @@ function buildApp(){
     })(),
     isAdmin&&S.showSettings?buildSettings():null,
     S.ceremony?buildCeremony():null,
+    S.ceremonyReady&&!S.ceremony?buildCeremonyReady():null,
     S.awardPopup?buildAwardPopup():null,
     footer
   );
@@ -670,7 +707,7 @@ function buildHbDetail(hb){
       B({flex:"1",background:attAll?"#22C55E":"#F1F5F9",color:attAll?"#fff":"#475569",border:"none",borderRadius:"10px",padding:"10px 0",fontWeight:"700",fontSize:"13px",cursor:"pointer"},()=>bulkCheck(hb,"attendance",!attAll),"✅ 전체 출석 ",attAll?"해제":"체크"),
       B({flex:"1",background:uniAll?"#3B82F6":"#F1F5F9",color:uniAll?"#fff":"#475569",border:"none",borderRadius:"10px",padding:"10px 0",fontWeight:"700",fontSize:"13px",cursor:"pointer"},()=>bulkCheck(hb,"uniform",!uniAll),"👕 전체 단복 ",uniAll?"해제":"체크")
     ):null,
-    ...hbStu(hb).map(s=>{
+    ...[...hbStu(hb)].sort((a,b)=>a.name.localeCompare(b.name,"ko")).map(s=>{
       const d=getSD(s.id),t=getTeam(s.team);
       return D({background:"#fff",borderRadius:"12px",border:`2px solid ${t.border}`,padding:"14px",marginBottom:"10px"},
         D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
@@ -687,11 +724,11 @@ function buildHbDetail(hb){
           B({display:"flex",alignItems:"center",gap:"5px",padding:"7px 12px",borderRadius:"8px",border:`1px solid ${d.uniform?"#3B82F6":"#E2E8F0"}`,background:d.uniform?"#EFF6FF":"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"600",color:d.uniform?"#2563EB":"#94A3B8"},()=>setSD(s.id,{uniform:!d.uniform}),d.uniform?"✅":"☐"," 단복"),
           D({marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px"},
             SP({fontSize:"12px",color:"#64748B"},"서명 갯수"),
-            B({width:"36px",height:"28px",borderRadius:"6px",border:"1px solid #FECACA",background:"#FEF2F2",cursor:locked?"not-allowed":"pointer",fontSize:"12px",fontWeight:"700",color:"#EF4444"},()=>setSD(s.id,{signs:Math.max(0,(d.signs||0)-1)}),"-1"),
+            B({width:"36px",height:"28px",borderRadius:"6px",border:"1px solid #FECACA",background:"#FEF2F2",cursor:locked?"not-allowed":"pointer",fontSize:"12px",fontWeight:"700",color:"#EF4444"},()=>{setSD(s.id,{signs:Math.max(0,(d.signs||0)-1)});showToast();}," -1"),
             SP({minWidth:"28px",textAlign:"center",fontWeight:"700",fontSize:"16px"},d.signs||0),
-            getAwardGroup(hb)==="tnt"?B({width:"36px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"12px",fontWeight:"700",color:"#475569"},()=>setSD(s.id,{signs:Math.round(((d.signs||0)+0.5)*10)/10}),"+0.5"):null,
-            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#475569"},()=>setSD(s.id,{signs:(d.signs||0)+1}),"+1"),
-            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#475569"},()=>setSD(s.id,{signs:(d.signs||0)+3}),"+3")
+            getAwardGroup(hb)==="tnt"?B({width:"36px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"12px",fontWeight:"700",color:"#475569"},()=>{setSD(s.id,{signs:Math.round(((d.signs||0)+0.5)*10)/10});showToast();}," +0.5"):null,
+            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#475569"},()=>{setSD(s.id,{signs:(d.signs||0)+1});showToast();}," +1"),
+            B({width:"32px",height:"28px",borderRadius:"6px",border:"1px solid #E2E8F0",background:"#F8FAFC",cursor:locked?"not-allowed":"pointer",fontSize:"13px",fontWeight:"700",color:"#475569"},()=>{setSD(s.id,{signs:(d.signs||0)+3});showToast();}," +3")
           )
         )
       );
@@ -712,25 +749,29 @@ function buildGame(){
         btn.appendChild(mkClubLabel(t," "+l,16));return btn;
       })
     ),
-    !locked?D({marginBottom:"12px"},
-      !fin?B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(true),"🏁 전체 게임 결과 확정")
-          :B({width:"100%",background:"#64748B",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(false),"↩️ 확정 취소")
+    !locked?D({display:"flex",gap:"8px",marginBottom:"12px"},
+      !fin
+        ?B({flex:"1",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(true),"🏆 경기 결과 확정")
+        :B({flex:"1",background:"#64748B",color:"#fff",border:"none",borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer"},()=>setFinalized(false),"↩️ 확정 취소"),
+      !fin?B({background:"#F8FAFC",border:"2px dashed #CBD5E1",borderRadius:"10px",padding:"12px 16px",color:"#64748B",fontWeight:"600",fontSize:"13px",cursor:"pointer",whiteSpace:"nowrap"},
+        ()=>setGame(S.gameTab,g=>({...g,rounds:[...g.rounds,initRound(g.rounds.length+1)]})),
+        "+ 라운드"):null
     ):null,
-    fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},"✅ 게임 결과 확정됨"):null,
+    fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},"✅ 경기 결과 확정됨"):null,
     buildGameType(S.gameTab,wd,fin,locked)
   );
 }
 function buildGameType(type,wd,fin,locked){
   const game=wd.games?.[type]||initGame(1);
   return D({},
-    !fin&&!locked?B({width:"100%",background:"#F8FAFC",border:"2px dashed #CBD5E1",borderRadius:"10px",padding:"10px 0",color:"#64748B",fontWeight:"600",fontSize:"13px",cursor:"pointer",marginBottom:"14px"},
-      ()=>setGame(type,g=>({...g,rounds:[...g.rounds,initRound(g.rounds.length+1)]})),
-      "+ 새 라운드 추가"):null,
     ...[...game.rounds].reverse().map((round,ri)=>D({},
       ri>0?D({borderTop:"2px dashed #E2E8F0",margin:"14px 0"}):null,
       D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
-        D({fontWeight:"700",fontSize:"14px"},`🏁 ${round.name}`),
-        !fin&&!locked?B({background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:"12px"},()=>{const n=prompt("라운드 이름:",round.name);if(n)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,name:n}:r)}));},"✏️"):null
+        D({fontWeight:"700",fontSize:"14px"},`🏃 ${round.name}`),
+        D({display:"flex",gap:"6px"},
+          !fin&&!locked?B({background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:"12px"},()=>{const n=prompt("라운드 이름:",round.name);if(n)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,name:n}:r)}));},"✏️"):null,
+          !fin&&!locked?B({background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:"14px"},()=>{if(confirm("이 라운드를 삭제할까요?"))setGame(type,g=>({...g,rounds:g.rounds.filter(r=>r.id!==round.id)}));},"🗑️"):null
+        )
       ),
       D({display:"grid",gap:"10px",marginBottom:"10px"},
         ...TEAMS.map(t=>D({background:"#fff",borderRadius:"12px",border:`2px solid ${t.border}`,padding:"12px 14px"},
@@ -769,6 +810,7 @@ function buildResult(sorted){
 
   return D({},
     mkWeekBadge(),
+    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"14px"},()=>startCeremony(),"🏆 시상식 공개"):null,
     D({fontWeight:"600",fontSize:"15px",marginBottom:"12px"},"최종 결과"),
     ...sorted.map((t,i)=>{
       const isFirst=i===0;
@@ -795,12 +837,11 @@ function buildResult(sorted){
           wd.gameFinalized?D({display:"flex",alignItems:"center",gap:"4px"},
             SP({fontSize:"11px",color:"#64748B"},"게임"),
             SP({fontWeight:"700",fontSize:"12px",color:"#1E293B"},((sparksGame||0)+(tntGame||0)).toLocaleString(),"점")
-          ):SP({fontSize:"11px",color:"#94A3B8"},"게임 미확정")
+          ):SP({fontSize:"11px",color:"#94A3B8"},"경기 미확정")
         )
       );
     }),
-    !wd.gameFinalized?D({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px 14px",marginTop:"4px",fontSize:"13px",color:"#64748B"},"⚠️ 게임 결과가 아직 확정되지 않았습니다."):null,
-    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginTop:"8px"},()=>startCeremony(),"🎬 시상식 공개"):null
+    !wd.gameFinalized?D({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px 14px",marginTop:"4px",fontSize:"13px",color:"#64748B"},"⚠️ 경기 결과가 아직 확정되지 않았습니다."):null
   );
 }
 
@@ -874,17 +915,16 @@ function buildAwardPopup(){
       return card;
     }
 
-    // 보석 1~8 - 티앤티처럼 자유롭게 토글
-    const gemsUnlocked=(hadBadge||hasBadge)&&(hadWing||hasWing);
+    // 보석 1~8 - 자유롭게 토글
     const totalGems2=pastGems+curGems;
 
     const gemGrid=D({display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px"},
       ...GEM_SEQ.map((tid,i)=>{
         const tm=TEAMS.find(x=>x.id===tid);
         const gemName=tid==="red"?"빨강":"초록";
-        const isDone=i<totalGems2; // 이전주+이번주 합산으로 체크됨
-        const isCurRange=i>=pastGems&&i<totalGems2; // 이번주에 받은 것
-        const isDisabled=locked||!gemsUnlocked;
+        const isDone=i<totalGems2;
+        const isCurRange=i>=pastGems&&i<totalGems2;
+        const isDisabled=locked;
 
         const circleStyle={width:"36px",height:"36px",borderRadius:"50%",
           display:"flex",alignItems:"center",justifyContent:"center",
@@ -899,18 +939,16 @@ function buildAwardPopup(){
           border:`2px solid ${isDone?tm.color:"#E2E8F0"}`,
           background:isDone?tm.light:"#F8FAFC",
           cursor:isDisabled?"default":"pointer",
-          opacity:isDisabled&&!isDone?"0.45":"1"},
+          opacity:"1"},
           circle,
           SP({fontSize:"10px",fontWeight:isDone?"700":"400",
             color:isDone?tm.color:"#CBD5E1"},gemName)
         );
 
         if(!isDisabled) box.addEventListener("click",async()=>{
-          // 클릭한 보석이 이미 체크된 경우: 이번 주 범위면 토글(취소), 과거 주차면 무시
           if(isDone){
             if(isCurRange) await save({gems:curGems-1});
           } else {
-            // 미체크 → 체크: 이 인덱스까지 모두 채움
             await save({gems:i-pastGems+1});
           }
         });
@@ -925,12 +963,10 @@ function buildAwardPopup(){
         showWing ?mkBadgeCard(HB_WING_LABEL[hb]||"날개핀",hadWing,hasWing,"wing","wing"):null
       ):null,
       D({fontWeight:"700",fontSize:"13px",color:"#475569",marginBottom:"8px"},"▸ 보석"),
-      !gemsUnlocked
-        ? D({fontSize:"11px",color:"#F59E0B",marginBottom:"10px"},"⚠️ 승급표식과 날개핀 완료 후 보석을 받을 수 있어요")
-        : totalGems2>=8
-          ? D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},"🎉 8개 보석을 모두 받았어요!")
-          : D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
-              `${pastGems>0?pastGems+"개 받음 · ":""}${totalGems2>=8?"8개 모두 완료!":"다음: "+(GEM_SEQ[totalGems2]==="red"?"빨강":"초록")+" 보석"}`),
+      totalGems2>=8
+        ? D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},"🎉 8개 보석을 모두 받았어요!")
+        : D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
+            `${pastGems>0?pastGems+"개 받음 · ":""}${totalGems2>=8?"8개 모두 완료!":"이미 받은 보석은 색깔 표시됩니다"}`),
       gemGrid
     );
     }
@@ -1062,99 +1098,149 @@ function buildAwardPopup(){
     )
   );
 }
+function buildCeremonyReady(){ return null; }
 function buildCeremony(){
   const sorted=S.cSorted||[...TEAMS].sort((a,b)=>totalScore(b.id)-totalScore(a.id));
   const maxScore=S.cMaxScore||Math.max(...TEAMS.map(t=>totalScore(t.id)),1);
   const FIXED=["red","blue","green","yellow"];
   const RL=["🥇","🥈","🥉","4️⃣"],RN=["1등","2등","3등","4등"];
   const step=S.cStep||0,isAnim=S.cPhase==="animating",isDone=S.cPhase==="done";
-  const lastRevId=S.cRevealed&&S.cRevealed.length>0?S.cRevealed[S.cRevealed.length-1]:null;
+  const isReady=S.cPhase==="ready";
+
+  // ── 반응형 크기 (clamp: 모바일~데스크탑) ──
+  const fs={
+    title:  "clamp(10px, 1.2vw, 16px)",
+    week:   "clamp(13px, 1.6vw, 20px)",
+    banner: "clamp(18px, 3.5vw, 36px)",
+    bannerBig: "clamp(32px, 6vw, 72px)",
+    bannerSub: "clamp(18px, 2.8vw, 36px)",
+    score:  "clamp(16px, 2.8vw, 36px)",
+    team:   "clamp(14px, 2.5vw, 36px)",
+    medal:  "clamp(14px, 1.8vw, 24px)",
+    tbl:    "clamp(14px, 2.2vw, 32px)",
+    btn:    "clamp(13px, 1.5vw, 20px)",
+  };
+
+  // 배너
+  const lastRevId=S.cRevealed?.length>0?S.cRevealed[S.cRevealed.length-1]:null;
   const lastRev=lastRevId?TEAMS.find(t=>t.id===lastRevId):null;
   const lastRank=lastRev?sorted.findIndex(t=>t.id===lastRevId):-1;
   let bannerContent;
-  if(lastRev){
+  if(isReady){
+    bannerContent=D({fontSize:fs.banner,color:"#94A3B8"},"시작하기 버튼을 눌러주세요");
+  } else if(lastRev){
     bannerContent=[
-      D({fontSize:"16px",color:"#94A3B8",letterSpacing:"2px",marginBottom:"4px"},RL[lastRank]+" "+RN[lastRank]),
-      D({fontSize:"46px",fontWeight:"900",lineHeight:"1.1",color:lastRev.color},lastRev.name,"팀!"),
-      D({fontSize:"22px",fontWeight:"800",color:"#1E293B",marginTop:"4px"},(S.cTargets&&S.cTargets[lastRev.id]||0).toLocaleString()+"점")
+      D({fontSize:fs.banner,color:"#94A3B8",letterSpacing:"2px",marginBottom:"2px"},RL[lastRank]+" "+RN[lastRank]),
+      D({fontSize:fs.bannerBig,fontWeight:"900",lineHeight:"1.0",color:lastRev.color},lastRev.name,"팀!"),
+      D({fontSize:fs.bannerSub,fontWeight:"800",color:"#1E293B",marginTop:"2px"},(S.cTargets?.[lastRev.id]||0).toLocaleString(),"점")
     ];
   } else if(S.cBanner){
-    bannerContent=D({fontSize:"30px",fontWeight:"900",color:"#1E293B",letterSpacing:"1px"},S.cBanner);
+    bannerContent=D({fontSize:fs.banner,fontWeight:"900",color:"#1E293B",letterSpacing:"1px"},S.cBanner);
   } else {
-    bannerContent=D({fontSize:"16px",color:"#64748B"},"버튼을 눌러 시작하세요");
+    bannerContent=D({fontSize:fs.banner,color:"#64748B"},"진행 중...");
   }
-  const bannerArea=D({minHeight:"110px",display:"flex",flexDirection:"column",
-    alignItems:"center",justifyContent:"center",marginBottom:"8px",flexShrink:"0"},bannerContent);
-  const BAR_MAX=240;
-  const barArea=D({display:"flex",alignItems:"flex-end",gap:"8px",
-    height:(BAR_MAX+80)+"px",width:"100%",boxSizing:"border-box",
-    padding:"0 12px",marginBottom:"8px",flexShrink:"0"},
+  const bannerArea=D({minHeight:"clamp(40px,6vh,80px)",display:"flex",flexDirection:"column",
+    alignItems:"center",justifyContent:"center",flexShrink:"0"},bannerContent);
+
+  // 막대 그래프 - BAR_MAX 500, 반응형
+  const BAR_MAX=500;
+  const showGame=step>=1, showHb=step>=2;
+
+  const barArea=D({display:"flex",alignItems:"flex-end",gap:"clamp(4px,0.8vw,12px)",
+    width:"100%",height:"100%",boxSizing:"border-box",padding:"0 clamp(6px,1vw,16px) 0"},
     ...FIXED.map(tid=>{
       const t=TEAMS.find(x=>x.id===tid);
-      const score=S.cScores&&S.cScores[t.id]||0;
-      const barH=Math.max(4,Math.round((score/maxScore)*BAR_MAX));
-      const rev=S.cRevealed&&S.cRevealed.includes(t.id);
+      const score=S.cScores?.[t.id]||0;
+      const barH=Math.max(isReady?2:4,Math.round((score/maxScore)*BAR_MAX));
+      const rev=S.cRevealed?.includes(t.id);
       const rank=sorted.findIndex(x=>x.id===t.id);
+
       const numEl=document.createElement("div");
       numEl.id="cnum_"+t.id;
-      Object.assign(numEl.style,{fontSize:rev?"18px":"13px",fontWeight:"800",
-        color:t.color,textAlign:"center",marginBottom:"4px",minHeight:"20px",
-        opacity:rev?"1":"0.4"});
+      Object.assign(numEl.style,{fontSize:fs.score,fontWeight:"900",
+        color:t.color,textAlign:"center",marginBottom:"4px",lineHeight:"1"});
       numEl.textContent=score>0?score.toLocaleString():"";
+
       const barEl=document.createElement("div");
       barEl.id="cbar_"+t.id;
       Object.assign(barEl.style,{width:"100%",height:barH+"px",
-        background:t.grad,borderRadius:"8px 8px 0 0",
-        boxShadow:rev?"0 0 32px "+t.color+"cc, 0 0 8px "+t.color:"none",
-        position:"relative",
-        border:rev?"2px solid "+t.color:"1px solid "+t.color+"44",
-        opacity:rev?"1":"0.35"});
+        background:t.grad,borderRadius:"6px 6px 0 0",
+        boxShadow:rev?"0 0 28px "+t.color+"bb":"none",
+        position:"relative",border:"2px solid "+t.color,
+        transition:"height 0.05s linear"});
       if(rev&&rank===0){
         const cr=document.createElement("div");
-        cr.style.cssText="position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:24px";
+        cr.style.cssText="position:absolute;top:-2em;left:50%;transform:translateX(-50%);font-size:clamp(16px,2vw,28px)";
         cr.textContent="👑";barEl.appendChild(cr);
       }
-      const medalEl=D({fontSize:"20px",height:"26px",textAlign:"center",marginBottom:"2px"},rev?RL[rank]:"");
-      const nameEl=rev
-        ?D({marginTop:"6px",textAlign:"center",background:"#fff",
-            borderRadius:"10px",padding:"5px 10px",
-            boxShadow:"0 2px 12px "+t.color+"55"},
-            SP({fontSize:"18px",fontWeight:"900",color:t.color},t.name,"팀!"))
-        :D({marginTop:"6px",textAlign:"center",opacity:"0.4"},
-            SP({fontSize:"13px",fontWeight:"700",color:t.color},t.name,"팀"));
+      const medalEl=D({fontSize:fs.medal,height:"1.6em",textAlign:"center",marginBottom:"2px"},rev?RL[rank]:"");
+
+      // 팀명 + 경기/암송 점수 — 그래프 하단에 같이
+      const gs=S.cGameScores?.[tid]||0;
+      const hbScore=teamHb(tid);
+      const nameEl=D({marginTop:"4px",textAlign:"center",width:"100%"},
+        D({fontSize:fs.team,fontWeight:"900",color:t.color,lineHeight:"1.2"},t.name,"팀"),
+        D({fontSize:fs.tbl,fontWeight:"800",color:showGame?"#1E293B":"transparent",lineHeight:"1.3"},gs.toLocaleString()),
+        D({fontSize:fs.tbl,fontWeight:"800",color:showHb?"#475569":"transparent",lineHeight:"1.3"},hbScore.toLocaleString())
+      );
+
       return D({display:"flex",flexDirection:"column",alignItems:"center",flex:"1"},
         medalEl,numEl,
         D({width:"100%",height:BAR_MAX+"px",display:"flex",alignItems:"flex-end"},barEl),
         nameEl);
     })
   );
-  const SL=["▶ 시작하기","4등까지 →","3등까지 →","🏆 우승 팀 발표!!","🥈 준우승 팀 발표!","완료"];
+
+  // 상단 라벨 (경기/암송 행 라벨 — 그래프 왼쪽에 작게)
+  const tableLabels=D({flexShrink:"0",display:"flex",flexDirection:"column",
+    padding:"0 clamp(6px,1vw,16px)",width:"100%",boxSizing:"border-box",
+    position:"relative",zIndex:"1"},
+    D({display:"flex"},
+      D({width:"clamp(40px,5vw,60px)",flexShrink:"0"},""),
+      D({flex:"1",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"clamp(4px,0.8vw,12px)"},
+        ...FIXED.map(tid=>{
+          const t=TEAMS.find(x=>x.id===tid);
+          return D({textAlign:"center",fontSize:fs.tbl,fontWeight:"800",color:t.color,padding:"4px 0"},t.name);
+        })
+      )
+    )
+  );
+
+  const SL=["▶ 시작하기","4등 발표 →","3등 발표 →","잠깐... 🥁","🏆 우승 팀 발표!","🥈 준우승 팀 발표","완료"];
   const mainBtn=!isDone?B({
     background:isAnim?"#E2E8F0":"linear-gradient(135deg,#3B82F6,#1D4ED8)",
-    color:isAnim?"#94A3B8":"#fff",border:"none",borderRadius:"14px",
-    padding:"14px 32px",fontWeight:"800",fontSize:"16px",
+    color:isAnim?"#94A3B8":"#fff",border:"none",borderRadius:"clamp(8px,1vw,14px)",
+    padding:"clamp(8px,1vh,14px) clamp(12px,2vw,32px)",fontWeight:"800",fontSize:fs.btn,
     cursor:isAnim?"not-allowed":"pointer",opacity:isAnim?"0.5":"1",
-    boxShadow:isAnim?"none":"0 6px 20px rgba(59,130,246,0.5)"
-  },()=>{if(!isAnim)cNextStep();},SL[Math.min(step,5)]):null;
+    boxShadow:isAnim?"none":"0 4px 16px rgba(59,130,246,0.5)",whiteSpace:"nowrap"
+  },()=>{if(!isAnim)cNextStep();},SL[Math.min(step,6)]):null;
   const closeBtn=B({
     background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",
-    borderRadius:"10px",padding:"10px 20px",fontWeight:"600",fontSize:"13px",cursor:"pointer"
-  },()=>{stopAllSounds();S.ceremony=false;render();},"닫기");
-  return D({position:"fixed",inset:"0",
-    background:"#fff",border:"12px solid #DC2626",boxSizing:"border-box",
-    zIndex:"200",display:"flex",flexDirection:"column",
-    alignItems:"center",justifyContent:"space-between",overflow:"hidden"},
-    el("div",{id:"cconf",style:{position:"absolute",inset:"0",pointerEvents:"none",overflow:"hidden"}}),
-    D({width:"100%",textAlign:"center",padding:"48px 16px 0",flexShrink:"0",position:"relative",zIndex:"1"},
-      D({fontSize:"11px",color:"#DC2626",letterSpacing:"4px",marginBottom:"6px",fontWeight:"700"},"A W A N A  시상식"),
-      D({fontSize:"16px",fontWeight:"700",color:"#1E293B"},
+    borderRadius:"clamp(6px,0.8vw,10px)",padding:"clamp(6px,1vh,12px) clamp(10px,1.5vw,22px)",
+    fontWeight:"600",fontSize:fs.btn,cursor:"pointer",whiteSpace:"nowrap"
+  },()=>{stopAllSounds();S.ceremony=false;S.ceremonyReady=false;render();},"닫기");
+
+  const topBar=D({width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+    padding:"clamp(6px,1vh,12px) clamp(10px,1.5vw,20px)",flexShrink:"0",
+    position:"relative",zIndex:"1",boxSizing:"border-box"},
+    D({display:"flex",flexDirection:"column",gap:"2px"},
+      D({fontSize:fs.title,color:"#DC2626",letterSpacing:"3px",fontWeight:"700",lineHeight:"1"},"A W A N A  시상식"),
+      D({fontSize:fs.week,fontWeight:"700",color:"#1E293B",lineHeight:"1.2"},
         (S.week===0?"0주차":S.week+"주차")+" 최종 순위")
     ),
-    D({width:"100%",textAlign:"center",padding:"0 16px",position:"relative",zIndex:"1"},bannerArea),
-    D({width:"100%",position:"relative",zIndex:"1"},barArea),
-    D({display:"flex",gap:"12px",alignItems:"center",
-      padding:"12px 20px 32px",flexShrink:"0",position:"relative",zIndex:"1"},
-      mainBtn,closeBtn)
+    D({display:"flex",gap:"clamp(6px,0.8vw,10px)",alignItems:"center"},mainBtn,closeBtn)
+  );
+
+  return D({position:"fixed",inset:"0",
+    background:"#fff",border:"clamp(4px,0.8vw,10px) solid #DC2626",boxSizing:"border-box",
+    zIndex:"200",display:"flex",flexDirection:"column",
+    alignItems:"center",overflow:"hidden"},
+    el("div",{id:"cconf",style:{position:"absolute",inset:"0",pointerEvents:"none",overflow:"hidden"}}),
+    topBar,
+    D({width:"100%",textAlign:"center",padding:"0 clamp(10px,1.5vw,20px)",
+      flexShrink:"0",position:"relative",zIndex:"1"},bannerArea),
+    D({width:"100%",flex:"1",position:"relative",zIndex:"1",minHeight:"0",
+      display:"flex",alignItems:"stretch"},barArea)
   );
 }
 function buildSettings(){
@@ -1843,14 +1929,14 @@ function buildAwardsTab(){
             SP({fontWeight:"700",fontSize:"12px",color:"#1E293B"},(sparksHb+tntHb).toLocaleString(),"점")
           ),
           wd.gameFinalized?D({display:"flex",alignItems:"center",gap:"4px"},
-            SP({fontSize:"11px",color:"#64748B"},"게임"),
+            SP({fontSize:"11px",color:"#64748B"},"🏃 경기"),
             SP({fontWeight:"700",fontSize:"12px",color:"#1E293B"},((sparksGame||0)+(tntGame||0)).toLocaleString(),"점")
-          ):SP({fontSize:"11px",color:"#94A3B8"},"게임 미확정")
+          ):SP({fontSize:"11px",color:"#94A3B8"},"경기 미확정")
         )
       );
     }),
-    !wd.gameFinalized?D({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px 14px",marginTop:"4px",fontSize:"13px",color:"#64748B"},"⚠️ 게임 결과가 아직 확정되지 않았습니다."):null,
-    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginTop:"8px"},()=>startCeremony(),"🎬 시상식 공개"):null
+    !wd.gameFinalized?D({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px 14px",marginTop:"4px",fontSize:"13px",color:"#64748B"},"⚠️ 경기 결과가 아직 확정되지 않았습니다."):null,
+    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginTop:"8px"},()=>startCeremony(),"🏆 시상식 공개"):null
   );
 
   function buildMemoText(){
