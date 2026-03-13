@@ -197,7 +197,7 @@ function startListeners(){
 // ════════════════════════════════════
 //  데이터 헬퍼
 // ════════════════════════════════════
-function initRound(n){return{id:Date.now()+n,name:`라운드 ${n}`,scores:{red:0,yellow:0,green:0,blue:0}};}
+function initRound(n){return{id:Date.now()+n,name:`라운드 ${n}`,mode:"team",scores:{red:0,yellow:0,green:0,blue:0}};}
 function initGame(n=1){return{rounds:Array.from({length:n},(_,i)=>initRound(i+1))};}
 function initWD(){return{students:{},games:{sparks:initGame(1),tnt:initGame(1)},gameFinalized:false};}
 function getWD(){return S.wdata[S.week]||initWD();}
@@ -911,8 +911,6 @@ function buildHbDetail(hb){
 // ════════════════════════════════════
 function buildGame(){
   const wd=getWD(),fin=wd.gameFinalized,locked=isLocked();
-  if(!S.roundModes) S.roundModes={};
-  if(!S.roundLocks) S.roundLocks={};
 
   return D({},
     // 스팍스/티앤티 탭 + 게임 종료 버튼
@@ -937,6 +935,29 @@ function buildGame(){
               ()=>setFinalized(false),"↩️ 취소")
       ):null
     ),
+    (()=>{
+      const mkRankLine=(type)=>{
+        const sortedT=[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id));
+        const row=D({display:"flex",alignItems:"center",gap:"5px",
+          padding:"6px 10px",marginBottom:"6px",
+          background:"#F8FAFC",borderRadius:"8px",border:"1px solid #E2E8F0",flexWrap:"wrap"});
+        const label=type==="sparks"?"스팍스":"티앤티";
+        row.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#94A3B8",flexShrink:"0",marginRight:"2px"},label));
+        sortedT.forEach((t,i)=>{
+          if(i>0) row.appendChild(SP({fontSize:"11px",color:"#CBD5E1",flexShrink:"0"},"│"));
+          const pts=gameCum(type,t.id);
+          row.appendChild(D({display:"flex",alignItems:"center",gap:"2px"},
+            SP({fontSize:"11px",fontWeight:"800",color:t.color},t.name),
+            SP({fontSize:"11px",fontWeight:"600",color:"#64748B"},"("+pts.toLocaleString()+")")
+          ));
+        });
+        return row;
+      };
+      const rankWrap=D({marginBottom:"8px"});
+      rankWrap.appendChild(mkRankLine("sparks"));
+      rankWrap.appendChild(mkRankLine("tnt"));
+      return rankWrap;
+    })(),
     fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",
       padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},
       "✅ 게임 결과 확정됨"):null,
@@ -950,33 +971,20 @@ function buildGameType(type,wd,fin,locked){
   if(!game.rounds||game.rounds.length===0){
     setGame(type,g=>({...g,rounds:[initRound(1)]}));
   }
-  if(!S.roundModes) S.roundModes={};
-  if(!S.roundLocks) S.roundLocks={};
 
   async function addScore(roundId, tid, sc){
-    // 잠금 상태 스냅샷 (비동기 전에)
-    const lk=S.roundLocks[roundId]||{};
-    const prevSc=lk[tid]!=null?lk[tid]:null;
-
-    // 이미 같은 버튼 → 토글 해제
-    if(prevSc===sc){
-      const curScore=getWD().games?.[type]?.rounds?.find(r=>r.id===roundId)?.scores?.[tid]||0;
+    const curScore=getWD().games?.[type]?.rounds?.find(r=>r.id===roundId)?.scores?.[tid]||0;
+    // 이미 같은 버튼(점수 일치) → 토글 해제 (0으로)
+    if(curScore===sc){
       await setGame(type,g=>({...g,rounds:g.rounds.map(r=>
-        r.id===roundId?{...r,scores:{...r.scores,[tid]:Math.max(0,curScore-sc)}}:r
+        r.id===roundId?{...r,scores:{...r.scores,[tid]:0}}:r
       )}));
-      if(S.roundLocks[roundId]) delete S.roundLocks[roundId][tid];
       render(); return;
     }
-
-    // 다른 버튼 선택 → 기존 입력 빼고 새 점수 추가
-    const curScore=getWD().games?.[type]?.rounds?.find(r=>r.id===roundId)?.scores?.[tid]||0;
-    const revert=prevSc!=null?prevSc:0;
-    const newScore=Math.max(0, curScore - revert + sc);
+    // 다른 버튼 → 해당 점수로 덮어쓰기
     await setGame(type,g=>({...g,rounds:g.rounds.map(r=>
-      r.id===roundId?{...r,scores:{...r.scores,[tid]:newScore}}:r
+      r.id===roundId?{...r,scores:{...r.scores,[tid]:sc}}:r
     )}));
-    if(!S.roundLocks[roundId]) S.roundLocks[roundId]={};
-    S.roundLocks[roundId][tid]=sc;
     render();
   }
 
@@ -984,12 +992,11 @@ function buildGameType(type,wd,fin,locked){
   const wrap=D({});
 
   reversedRounds.forEach((round,ri)=>{
-    const mode=S.roundModes[round.id]||"team";
+    const mode=round.mode||"team";
     const isIndividual=mode==="individual";
     const scoreButtons=isIndividual?[50,100,150,200]:[100,200,300,400];
-    const lk=S.roundLocks[round.id]||{};
-    const allLocked=TEAMS.every(t=>lk[t.id]!=null);
-    const lockedCount=TEAMS.filter(t=>lk[t.id]!=null).length;
+    const allLocked=TEAMS.every(t=>scoreButtons.includes(round.scores?.[t.id]||0)&&(round.scores?.[t.id]||0)>0);
+    const lockedCount=TEAMS.filter(t=>scoreButtons.includes(round.scores?.[t.id]||0)&&(round.scores?.[t.id]||0)>0).length;
     const origIdx=game.rounds.findIndex(r=>r.id===round.id);
     const isFirstRound=origIdx===0;
     const isLastRound=ri===0;
@@ -1019,10 +1026,10 @@ function buildGameType(type,wd,fin,locked){
       ? D({display:"flex",gap:"2px",background:"#F1F5F9",borderRadius:"8px",padding:"2px",flexShrink:"0"},
           B({padding:"4px 10px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"14px",fontWeight:"700",
             background:!isIndividual?"#1E293B":"transparent",color:!isIndividual?"#fff":"#94A3B8"},
-            ()=>{S.roundModes[round.id]="team";render();},"팀전"),
+            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"team"}:r)}));},"팀전"),
           B({padding:"10px 16px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"13px",fontWeight:"700",
             background:isIndividual?"#1E293B":"transparent",color:isIndividual?"#fff":"#94A3B8"},
-            ()=>{S.roundModes[round.id]="individual";render();},"개인전")
+            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"individual"}:r)}));},"개인전")
         )
       : SP({fontSize:"13px",color:"#94A3B8",fontWeight:"600",background:"#F8FAFC",borderRadius:"6px",padding:"3px 8px",flexShrink:"0"},
           isIndividual?"개인전":"팀전");
@@ -1041,8 +1048,8 @@ function buildGameType(type,wd,fin,locked){
     // 팀 카드들
     const cardsGrid=D({display:"grid",gap:"8px",marginBottom:"8px"});
     TEAMS.forEach(t=>{
-      const isTeamLocked=lk[t.id]!=null;
       const curScore=round.scores?.[t.id]||0;
+      const isTeamLocked=scoreButtons.includes(curScore)&&curScore>0;
       const card=D({background:"#fff",borderRadius:"12px",
         border:`2px solid ${isTeamLocked?t.color:t.border}`,
         padding:"10px 12px",transition:"border-color 0.15s"});
@@ -1053,7 +1060,7 @@ function buildGameType(type,wd,fin,locked){
       ));
       const btnRow=D({display:"flex",gap:"5px"});
       scoreButtons.forEach(sc=>{
-        const isSelected=lk[t.id]===sc;
+        const isSelected=curScore===sc;
         const sb=D({flex:"1",background:isSelected?t.color:"#fff",
           color:isSelected?"#fff":isTeamLocked?"#CBD5E1":"#475569",
           borderRadius:"20px",padding:"14px 4px",textAlign:"center",
