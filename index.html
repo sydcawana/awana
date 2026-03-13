@@ -936,27 +936,25 @@ function buildGame(){
       ):null
     ),
     (()=>{
-      const mkRankLine=(type)=>{
-        const sortedT=[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id));
-        const row=D({display:"flex",alignItems:"center",gap:"5px",
-          padding:"6px 10px",marginBottom:"6px",
-          background:"#F8FAFC",borderRadius:"8px",border:"1px solid #E2E8F0",flexWrap:"wrap"});
-        const label=type==="sparks"?"스팍스":"티앤티";
-        row.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#94A3B8",flexShrink:"0",marginRight:"2px"},label));
-        sortedT.forEach((t,i)=>{
-          if(i>0) row.appendChild(SP({fontSize:"11px",color:"#CBD5E1",flexShrink:"0"},"│"));
+      const mkLine=(type)=>{
+        const lbl=type==="sparks"?"스팍스":"티앤티";
+        const lblColor=type==="sparks"?"#EF4444":"#16A34A";
+        const sorted=[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id));
+        const row=D({display:"flex",alignItems:"center",gap:"6px",
+          padding:"6px 10px",background:"#F8FAFC",
+          borderRadius:"8px",border:"1px solid #E2E8F0"});
+
+        sorted.forEach((t)=>{
           const pts=gameCum(type,t.id);
-          row.appendChild(D({display:"flex",alignItems:"center",gap:"2px"},
-            SP({fontSize:"11px",fontWeight:"800",color:t.color},t.name),
-            SP({fontSize:"11px",fontWeight:"600",color:"#64748B"},"("+pts.toLocaleString()+")")
-          ));
+          const cell=D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",gap:"0px"});
+          cell.appendChild(SP({fontSize:"12px",fontWeight:"800",color:t.color,textAlign:"center"},t.name));
+          cell.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#475569",textAlign:"center"},pts.toLocaleString()));
+          row.appendChild(cell);
         });
         return row;
       };
-      const rankWrap=D({marginBottom:"8px"});
-      rankWrap.appendChild(mkRankLine("sparks"));
-      rankWrap.appendChild(mkRankLine("tnt"));
-      return rankWrap;
+      return D({display:"flex",flexDirection:"column",gap:"4px",marginBottom:"10px"},
+        mkLine(S.gameTab));
     })(),
     fin?D({background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:"10px",
       padding:"10px 14px",marginBottom:"12px",fontSize:"13px",color:"#16A34A"},
