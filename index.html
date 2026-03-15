@@ -23,7 +23,7 @@ select,input,button,textarea{font-family:inherit;}
 <div id="root"></div>
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,doc,setDoc,onSnapshot}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getFirestore,doc,setDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = initializeApp({
   apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
@@ -457,10 +457,23 @@ function _revealGroup(groups, gIdx, noDecrease){
   const rankFromTop=totalGroups-1-gIdx; // 0=1등
 
   // 바 목표: 이 그룹의 점수까지
+  // 현재 그룹 이상 점수인 팀(상위 그룹)은 캡 미적용 → 현재 그룹 점수에 머무름
   const groupScore=S.cTargets[group[0]]||0;
   const from={...S.cScores};
   const rawTo={};
-  TEAMS.forEach(t=>{rawTo[t.id]=Math.min(S.cTargets[t.id]||0, groupScore);});
+  // 현재 그룹에 속한 팀들의 점수 집합
+  const groupIds=new Set(group);
+  // 상위 그룹 팀들 (현재 그룹보다 높은 점수)
+  const higherGroupIds=new Set(
+    groups.slice(gIdx+1).reduce((arr,g)=>[...arr,...g],[])
+  );
+  TEAMS.forEach(t=>{
+    if(higherGroupIds.has(t.id)){
+      rawTo[t.id]=groupScore; // 상위 팀은 현재 그룹 점수까지만 (아직 공개 안됨)
+    } else {
+      rawTo[t.id]=Math.min(S.cTargets[t.id]||0, groupScore);
+    }
+  });
   const to=noDecrease(from,rawTo);
 
   playSound("drumroll");
@@ -496,9 +509,9 @@ function _revealGroup(groups, gIdx, noDecrease){
       if(curRank===2) curLabel=isTie?"공동 준우승":"준우승";
       else curLabel=isTie?`공동 ${curRank}등`:`${curRank}등`;
 
-      // ★ 2등 단독 + 다음이 1등 → 극적 연출 모드
+      // ★ 2등(단독/공동) + 다음이 1등 단독 → 극적 연출 모드
       const nextGroup=groups[gIdx+1];
-      const isDramatic = isSecond && !isTie && nextGroup.length===1;
+      const isDramatic = isSecond && nextGroup.length===1;
 
       if(isDramatic){
         // 2등 바 올라온 상태에서 1등+2등 동시 깜빡 + "과연 우승팀은?"
@@ -532,12 +545,23 @@ function _revealGroup(groups, gIdx, noDecrease){
 }
 function updateBarsDirect(){
   const maxScore=S.cMaxScore||1;
+  const MIN_GAP=20;
+  // 최소 간격 보정
+  const rawH={};
+  TEAMS.forEach(t=>{rawH[t.id]=Math.max(4,Math.round((S.cScores[t.id]/maxScore)*420));});
+  const sortedT=[...TEAMS].sort((a,b)=>(S.cScores[b.id]||0)-(S.cScores[a.id]||0));
+  for(let i=1;i<sortedT.length;i++){
+    const prev=sortedT[i-1],cur=sortedT[i];
+    if((S.cScores[prev.id]||0)>(S.cScores[cur.id]||0) && rawH[prev.id]-rawH[cur.id]<MIN_GAP){
+      rawH[cur.id]=Math.max(4,rawH[prev.id]-MIN_GAP);
+    }
+  }
   TEAMS.forEach(t=>{
     const bar=document.getElementById("cbar_"+t.id);
     const num=document.getElementById("cnum_"+t.id);
     const above=document.getElementById("above_"+t.id);
     if(bar){
-      const newH=Math.max(4,Math.min(450,Math.round((S.cScores[t.id]/maxScore)*500)));
+      const newH=rawH[t.id];
       const curH=parseInt(bar.style.height)||0;
       const h=Math.max(curH,newH);
       bar.style.height=h+"px";
@@ -658,7 +682,7 @@ function mkClubLabel(type,text,iconSize=16){
 
 function mkEmpty(msg="등록된 학생이 없어요"){
   return D({textAlign:"center",color:"#94A3B8",padding:"28px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:"6px"},
-    SP({fontSize:"24px"},"👤"),
+    SP({fontSize:"24px"},"개인"),
     SP({fontSize:"13px"},msg)
   );
 }
@@ -807,7 +831,7 @@ function buildHbList(){
     SP({fontSize:"13px",color:"#94A3B8",fontWeight:"500"},"출석·단복 확인은 진행 탭에서 합니다.")
   );
 
-  const tabBar=D({display:"flex",gap:"8px",marginBottom:"14px"},
+  const tabBar=D({display:"flex",gap:"0",marginBottom:"-2px",position:"relative",zIndex:"1"},
     ...[["sparks","스팍스"],["tnt","티앤티"]].map(([id,label])=>{
       const btn=B({flex:"1",padding:"10px 0",borderRadius:"10px",border:"none",cursor:"pointer",
         fontWeight:"700",fontSize:"16px",
@@ -864,8 +888,9 @@ function buildHbList(){
 
 function mkShield(active, size=22){
   const el=document.createElement("div");
-  el.style.cssText=`width:${size}px;height:${size}px;flex-shrink:0;cursor:pointer;opacity:${active?"1":"0.2"};transition:opacity 0.15s;`;
-  el.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">
+  el.style.cssText=`width:${size}px;height:${size}px;flex-shrink:0;cursor:pointer;opacity:${active?"1":"0.25"};transition:opacity 0.15s;position:relative;`;
+  const fs=Math.round(size*0.38);
+  el.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}" style="display:block">
     <path fill="${active?"#ccd6dd":"#bbc"}" d="M29.333 2.667C23.111 0 16 0 16 0S8.889 0 2.667 2.667C0 16 2.667 27.556 16 32c13.333-4.444 16-16 13.333-29.333z"/>
     <path fill="${active?"#55acee":"#aab"}" d="M16 30.119C5.7 26.426 1.743 17.628 4.231 3.95 9.834 1.804 15.936 1.778 16 1.778c.063 0 6.185.036 11.769 2.172 2.488 13.677-1.468 22.476-11.769 26.169z"/>
     <path fill="${active?"#226699":"#889"}" d="M27.769 3.95C22.185 1.813 16.063 1.778 16 1.778v28.341c10.3-3.693 14.257-12.492 11.769-26.169z"/>
@@ -898,7 +923,7 @@ function buildHbDetail(hb){
     const d=getSD(s.id),t=getTeam(s.team);
     const isTnt=getAwardGroup(hb)==="tnt";
     const aw=d.awards||{};
-    const hasAward=!!(aw.badge||aw.wing||aw.award||(aw.gems>0)||(aw.seals&&aw.seals.length>0));
+    const hasAward=!!(aw.enroll||aw.badge||aw.wing||aw.award||(aw.gems>0)||(aw.seals&&aw.seals.length>0));
     const isEditing=S.editingSigns===s.id;
 
     function mkBtn(label,onClick,isRed){
@@ -941,13 +966,27 @@ function buildHbDetail(hb){
     return D({background:"#fff",borderRadius:"12px",border:"1px solid #E2E8F0",
       padding:"12px 14px",marginBottom:"8px",
       display:"flex",flexDirection:"column",gap:"12px"},
-      // 윗줄: 이름 + 방패 + 점수
+      // 윗줄: 이름 + 출석/단복 동그라미 + 방패 + 점수
       D({display:"flex",alignItems:"center",gap:"8px"},
         D({width:"8px",height:"8px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
         SP({fontWeight:"700",fontSize:"18px",color:"#1E293B",flex:"1"},s.name),
-        D({width:"22px",display:"flex",justifyContent:"center"},awardEl),
+        // 출석 뱃지
+        SP({fontSize:"11px",fontWeight:"700",flexShrink:"0",
+          padding:"2px 6px",borderRadius:"6px",
+          border:d.attendance?"1.5px solid #16A34A":"1.5px solid #E2E8F0",
+          color:d.attendance?"#16A34A":"#CBD5E1",
+          background:d.attendance?"#F0FDF4":"#F8FAFC"},
+          "출"),
+        // 단복 뱃지
+        SP({fontSize:"11px",fontWeight:"700",flexShrink:"0",marginRight:"2px",
+          padding:"2px 6px",borderRadius:"6px",
+          border:d.uniform?"1.5px solid #2563EB":"1.5px solid #E2E8F0",
+          color:d.uniform?"#2563EB":"#CBD5E1",
+          background:d.uniform?"#EFF6FF":"#F8FAFC"},
+          "단"),
+        D({width:"22px",display:"flex",justifyContent:"center",flexShrink:"0"},awardEl),
         SP({fontWeight:"800",color:"#1E293B",fontSize:"16px",
-          width:"58px",textAlign:"right",flexShrink:"0"},stuScore(s.id)+"점")
+          width:"54px",textAlign:"right",flexShrink:"0"},stuScore(s.id)+"점")
       ),
       // 아랫줄: 암송 입력 그룹 (도트 8px + gap 8px = 16px 들여쓰기)
       D({display:"flex",alignItems:"center",gap:"6px",opacity:locked?"0.5":"1",paddingLeft:"16px"},
@@ -1070,17 +1109,19 @@ function buildGameType(type,wd,fin,locked){
     // 라운드 헤더
     const hdrRight=D({display:"flex",gap:"4px",alignItems:"center"});
     if(!fin&&!locked){
-      hdrRight.appendChild(B({background:"none",border:"1px solid #E2E8F0",borderRadius:"6px",
-        color:"#94A3B8",cursor:"pointer",fontSize:"11px",fontWeight:"600",padding:"3px 8px",whiteSpace:"nowrap"},
-        ()=>{const n=prompt("라운드 이름:",round.name);if(n)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,name:n}:r)}));},"수정"));
+      if(isLastRound){
+        hdrRight.appendChild(B({background:"#1E293B",border:"none",borderRadius:"6px",
+          color:"#fff",cursor:"pointer",fontSize:"14px",fontWeight:"700",padding:"4px 10px",whiteSpace:"nowrap"},
+          ()=>setGame(type,g=>({...g,rounds:[...g.rounds,initRound(g.rounds.length+1)]})),"+ 라운드"));
+      }
       if(isFirstRound){
         hdrRight.appendChild(B({background:"none",border:"1px solid #FECACA",borderRadius:"6px",
-          color:"#EF4444",cursor:"pointer",fontSize:"11px",fontWeight:"600",padding:"3px 8px",whiteSpace:"nowrap"},
-          ()=>setGame(type,g=>({...g,rounds:[initRound(1)]})),"삭제"));
+          color:"#EF4444",cursor:"pointer",fontSize:"14px",fontWeight:"600",padding:"4px 8px",whiteSpace:"nowrap"},
+          ()=>setGame(type,g=>({...g,rounds:[initRound(1)]})),"🗑️"));
       } else {
         hdrRight.appendChild(B({background:"none",border:"1px solid #FECACA",borderRadius:"6px",
-          color:"#EF4444",cursor:"pointer",fontSize:"11px",fontWeight:"600",padding:"3px 8px",whiteSpace:"nowrap"},
-          ()=>{if(confirm("이 라운드를 삭제할까요?"))setGame(type,g=>({...g,rounds:g.rounds.filter(r=>r.id!==round.id)}));},"삭제"));
+          color:"#EF4444",cursor:"pointer",fontSize:"14px",fontWeight:"600",padding:"4px 8px",whiteSpace:"nowrap"},
+          ()=>{if(confirm("이 라운드를 삭제할까요?"))setGame(type,g=>({...g,rounds:g.rounds.filter(r=>r.id!==round.id)}));},"🗑️"));
       }
     }
 
@@ -1088,21 +1129,23 @@ function buildGameType(type,wd,fin,locked){
       ? D({display:"flex",gap:"2px",background:"#F1F5F9",borderRadius:"8px",padding:"2px",flexShrink:"0"},
           B({padding:"4px 10px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"14px",fontWeight:"700",
             background:!isIndividual?"#1E293B":"transparent",color:!isIndividual?"#fff":"#94A3B8"},
-            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"team"}:r)}));},"팀전"),
-          B({padding:"10px 16px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"13px",fontWeight:"700",
+            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"team"}:r)}));},"팀"),
+          B({padding:"4px 10px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"14px",fontWeight:"700",
             background:isIndividual?"#1E293B":"transparent",color:isIndividual?"#fff":"#94A3B8"},
-            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"individual"}:r)}));},"개인전")
+            ()=>{setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,mode:"individual"}:r)}));},"개인")
         )
       : SP({fontSize:"13px",color:"#94A3B8",fontWeight:"600",background:"#F8FAFC",borderRadius:"6px",padding:"3px 8px",flexShrink:"0"},
-          isIndividual?"개인전":"팀전");
+          isIndividual?"개인":"팀");
 
     roundEl.appendChild(D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"},
       D({display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"},
-        D({fontWeight:"700",fontSize:"16px"},`🏃 ${round.name}`),
+        B({fontWeight:"700",fontSize:"15px",
+          background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:"8px",
+          padding:"4px 10px",cursor:fin||locked?"default":"pointer",color:"#1E293B"},
+          ()=>{if(!fin&&!locked){const n=prompt("라운드 이름:",round.name);if(n)setGame(type,g=>({...g,rounds:g.rounds.map(r=>r.id===round.id?{...r,name:n}:r)}));}},
+          round.name),
         modeToggle,
-        lockedCount>0&&!allLocked
-          ? SP({fontSize:"13px",color:"#F59E0B",background:"#FFFBEB",borderRadius:"6px",padding:"2px 8px",fontWeight:"600"},`${lockedCount}/4 입력됨`)
-          : null
+        null
       ),
       hdrRight
     ));
@@ -1211,7 +1254,11 @@ function buildResult(sorted){
   const tntGrp=HB_GROUPS.find(g=>g.label==="T&T");
 
   return D({},
-    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"14px"},()=>startCeremony(),"🏆 시상식 공개"):null,
+    wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"14px"},async()=>{
+        const snap=await getDoc(doc(db,"awana","week_"+S.week));
+        if(snap.exists()) S.wdata[S.week]=snap.data();
+        startCeremony();
+      },"🏆 시상식 공개"):null,
     D({fontWeight:"600",fontSize:"15px",marginBottom:"12px"},"최종 결과"),
     ...sorted.map((t,i)=>{
       const isFirst=i===0;
@@ -1347,8 +1394,44 @@ function buildAwardPopup(){
       })
     );
 
+    // 입단 카드 (행글라이더만)
+    const showEnroll=hb==="행글라이더";
+    const hadEnroll=!!st?.enroll, hasEnroll=!!cur.enroll;
+    const bc0=HB_BADGE_COLOR[hb]||{color:"#22C55E",light:"#F0FDF4",border:"#86EFAC"};
+    const enrollCard=(()=>{
+      const bg=hadEnroll?bc0.light:hasEnroll?bc0.light:"#F8FAFC";
+      const border=hadEnroll?bc0.color:hasEnroll?bc0.color:"#E2E8F0";
+      const cc=hadEnroll?bc0.color:hasEnroll?bc0.color:"#E2E8F0";
+      const card=D({flex:"1",borderRadius:"12px",border:`2px solid ${border}`,
+        background:bg,padding:"12px 8px",textAlign:"center",
+        cursor:locked?"not-allowed":"pointer",position:"relative"},
+        D({width:"44px",height:"44px",borderRadius:"50%",margin:"0 auto 8px",
+          background:cc,display:"flex",alignItems:"center",justifyContent:"center",
+          fontWeight:"800",fontSize:"18px",color:"#fff"},
+          hadEnroll||hasEnroll?"✓":"🚀"
+        ),
+        D({fontSize:"12px",fontWeight:"700",color:(hadEnroll||hasEnroll)?bc0.color:"#1E293B",lineHeight:"1.3"},hb+" 입단"),
+        hadEnroll?D({fontSize:"10px",color:bc0.color,marginTop:"4px"},"완료 ✓"):null,
+        isAdmin&&hadEnroll?B({position:"absolute",top:"4px",right:"4px",fontSize:"10px",
+          color:"#EF4444",background:"#fff",border:"1px solid #FECACA",
+          borderRadius:"4px",padding:"1px 5px",cursor:"pointer"},
+          async e=>{e.stopPropagation();
+            await saveStuMilestone(sid,{enroll:false});
+            await save({enroll:false});
+          },"해제"):null
+      );
+      if(!locked) card.addEventListener("click",async e=>{
+        if(e.target.tagName==="BUTTON") return;
+        const newVal=!(hadEnroll||hasEnroll);
+        await saveStuMilestone(sid,{enroll:newVal});
+        await save({enroll:newVal});
+      });
+      return card;
+    })();
+
     return D({},
       D({display:"flex",gap:"10px",marginBottom:"14px"},
+        showEnroll?enrollCard:null,
         mkBadgeCard(HB_BADGE_LABEL[hb]||"승급표식",hadBadge,hasBadge,"badge","badge"),
         mkBadgeCard(HB_WING_LABEL[hb]||"날개핀",hadWing,hasWing,"wing","wing")
       ),
@@ -1418,8 +1501,42 @@ function buildAwardPopup(){
       })
     );
 
+    // 입단 카드 (어드벤처1, 챌린지1만)
+    const showTntEnroll=["어드벤처1","챌린지1"].includes(hb);
+    const hadTntEnroll=!!st?.enroll, hasTntEnroll=!!cur.enroll;
+    const enrollCardTnt=(()=>{
+      const bg=hadTntEnroll?tntLight:hasTntEnroll?tntLight:"#F8FAFC";
+      const border=hadTntEnroll?tntColor:hasTntEnroll?tntColor:"#E2E8F0";
+      const cc=hadTntEnroll?tntColor:hasTntEnroll?tntColor:"#E2E8F0";
+      const card=D({flex:"1",borderRadius:"12px",border:`2px solid ${border}`,
+        background:bg,padding:"12px 8px",textAlign:"center",
+        cursor:locked?"not-allowed":"pointer",position:"relative"},
+        D({width:"44px",height:"44px",borderRadius:"50%",margin:"0 auto 8px",
+          background:cc,display:"flex",alignItems:"center",justifyContent:"center",
+          fontWeight:"800",fontSize:"18px",color:"#fff"},
+          hadTntEnroll||hasTntEnroll?"✓":"🚀"
+        ),
+        D({fontSize:"12px",fontWeight:"700",color:(hadTntEnroll||hasTntEnroll)?tntColor:"#1E293B",lineHeight:"1.3"},hb+" 입단"),
+        hadTntEnroll?D({fontSize:"10px",color:tntColor,marginTop:"4px"},"완료 ✓"):null,
+        isAdmin&&hadTntEnroll?B({position:"absolute",top:"4px",right:"4px",fontSize:"10px",
+          color:"#EF4444",background:"#fff",border:"1px solid #FECACA",
+          borderRadius:"4px",padding:"1px 5px",cursor:"pointer"},
+          async e=>{e.stopPropagation();
+            await saveStuMilestone(sid,{enroll:false});
+            await save({enroll:false});
+          },"해제"):null
+      );
+      if(!locked) card.addEventListener("click",async e=>{
+        if(e.target.tagName==="BUTTON") return;
+        const newVal=!(hadTntEnroll||hasTntEnroll);
+        await saveStuMilestone(sid,{enroll:newVal});
+        await save({enroll:newVal});
+      });
+      return card;
+    })();
+
     return D({},
-      D({display:"flex",gap:"10px",marginBottom:"14px"},awardCard),
+      D({display:"flex",gap:"10px",marginBottom:"14px"},showTntEnroll?enrollCardTnt:null,awardCard),
       D({fontWeight:"700",fontSize:"13px",color:"#475569",marginBottom:"10px"},"▸ 씰"),
       D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
         `${hb} · 완료된 씰은 채워진 원으로 표시`),
@@ -1429,10 +1546,12 @@ function buildAwardPopup(){
 
   const summary=[];
   if(isSpks){
+    if(cur.enroll) summary.push("🚀"+hb+" 입단");
     if(cur.badge) summary.push("🏅"+HB_BADGE_LABEL[hb]);
     if(cur.wing)  summary.push("🪽 "+HB_WING_LABEL[hb]);
     if(cur.gems)  GEM_SEQ.slice(past.gems, past.gems+cur.gems).forEach(tid=>summary.push(tid==="red"?"🔴 빨강 보석":"🟢 초록 보석"));
   } else {
+    if(cur.enroll) summary.push("🚀"+hb+" 입단");
     if(cur.award) summary.push("🏆"+hb+"수상대");
     (cur.seals||[]).forEach(s=>summary.push("●"+s));
   }
@@ -1528,7 +1647,7 @@ function buildCeremony(){
   const fs={
     title:"clamp(9px,1.1vw,13px)",
     week:"clamp(12px,1.4vw,16px)",
-    banner:"clamp(16px,3.2vw,32px)",
+    banner:"clamp(24px,4.8vw,48px)",
     banner2:"clamp(13px,2.2vw,22px)",
     score:"clamp(18px,4vw,46px)",
     rank:"clamp(18px,4vw,46px)",
@@ -1549,15 +1668,29 @@ function buildCeremony(){
     },line):null).filter(Boolean)
   );
 
-  const BAR_MAX=500;
-  const BAR_CAP=Math.round(BAR_MAX*0.90);
+  const BAR_MAX=420;
+  const BAR_MIN_GAP=20;
+
+  // 점수 차이가 있으면 최소 BAR_MIN_GAP px 높이 차이 보장
+  const rawBarH={};
+  FIXED.forEach(tid=>{
+    const score=S.cScores?.[tid]||0;
+    rawBarH[tid]=Math.max(isReady?2:4,Math.round((score/maxScore)*BAR_MAX));
+  });
+  const sortedByScore=[...FIXED].sort((a,b)=>(S.cScores?.[b]||0)-(S.cScores?.[a]||0));
+  for(let i=1;i<sortedByScore.length;i++){
+    const prev=sortedByScore[i-1],cur=sortedByScore[i];
+    if((S.cScores?.[prev]||0)>(S.cScores?.[cur]||0) && rawBarH[prev]-rawBarH[cur]<BAR_MIN_GAP){
+      rawBarH[cur]=Math.max(4,rawBarH[prev]-BAR_MIN_GAP);
+    }
+  }
 
   const barArea=D({display:"flex",alignItems:"flex-end",gap:"clamp(4px,0.8vw,12px)",
     width:"100%",height:"100%",boxSizing:"border-box",padding:"0 clamp(6px,1vw,16px)"},
     ...FIXED.map(tid=>{
       const t=TEAMS.find(x=>x.id===tid);
       const score=S.cScores?.[t.id]||0;
-      const barH=Math.max(isReady?2:4,Math.min(BAR_CAP,Math.round((score/maxScore)*BAR_MAX)));
+      const barH=rawBarH[tid]||Math.max(isReady?2:4,Math.round((score/maxScore)*BAR_MAX));
       const rev=S.cRevealed?.includes(t.id);
       const rank=sorted.findIndex(x=>x.id===t.id);
       const isBlinking=S.cBlinkGroup?S.cBlinkGroup.includes(t.id):(S.cBlink===t.id);
@@ -2239,29 +2372,178 @@ function buildSchedule(){
   );
 
   return D({},
-    D({fontWeight:"600",fontSize:"15px",marginBottom:"14px",color:"#1E293B"},"이번 주 진행 순서"),
-    sc
-      ? D({background:"#fff",borderRadius:"12px",border:"2px solid #CBD5E1",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
+    (()=>{
+      if(!S.scheduleTab) S.scheduleTab="this";
+      const nextWeek=S.week+1;
+      const nextSc=nextWeek<WEEK_DATES.length?S.schedule[String(nextWeek)]:null;
+
+      function mkScheduleBox(s, week){
+        const dateStr=WEEK_DATES[week]||"";
+        const kakaoText=s?`[어와나 ${week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+        const shareBtn=(()=>{
+          if(!s||week===S.week) return null;
+          const svgNS="http://www.w3.org/2000/svg";
+          const svg=document.createElementNS(svgNS,"svg");
+          svg.setAttribute("width","20");svg.setAttribute("height","20");
+          svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
+          const path=document.createElementNS(svgNS,"path");
+          path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
+          svg.appendChild(path);
+          const btn=document.createElement("button");
+          btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
+          btn.appendChild(svg);
+          btn.addEventListener("click",()=>{
+            if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
+            else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
+          });
+          return btn;
+        })();
+        if(!s) return D({textAlign:"center",padding:"20px 0",color:"#94A3B8",fontSize:"13px"},"순서 정보가 없어요\n설정에서 입력해주세요");
+        return D({background:"#fff",borderRadius:"0 0 12px 12px",border:"2px solid #CBD5E1",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
           D({},
-            D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"📢 기수"),
+            D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
+              SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
+              shareBtn
+            ),
             D({display:"flex",gap:"8px"},
               D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(sc.l1role,sc.l1name))
+                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))
               ),
               D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"16px"},"/"),
               D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(sc.l2role,sc.l2name))
+                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name))
               )
             )
           ),
           D({},
             D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
             D({background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-              SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(sc.prole,sc.pname))
+              SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.prole,s.pname))
             )
           )
-        )
-      : D({textAlign:"center",padding:"20px 0",color:"#94A3B8",fontSize:"13px"},"이번 주 순서 정보가 없어요\n설정에서 입력해주세요"),
+        );
+      }
+
+      const nextOpen=S.scheduleNextOpen||false;
+
+      // 이번 주 박스 (항상 표시, 상단 둥글게)
+      const thisBox=(()=>{
+        const s=sc;
+        const dateStr=WEEK_DATES[S.week]||"";
+        const kakaoText=s?`[어와나 ${S.week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+        const mkShareBtn=()=>{
+          const svgNS="http://www.w3.org/2000/svg";
+          const svg=document.createElementNS(svgNS,"svg");
+          svg.setAttribute("width","18");svg.setAttribute("height","18");
+          svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
+          const path=document.createElementNS(svgNS,"path");
+          path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
+          svg.appendChild(path);
+          const btn=document.createElement("button");
+          btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
+          btn.appendChild(svg);
+          btn.addEventListener("click",()=>{
+            if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
+            else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
+          });
+          return btn;
+        };
+        if(!s) return D({background:"#fff",borderRadius:"12px",border:"2px solid #CBD5E1",
+          padding:"16px 18px",textAlign:"center",color:"#94A3B8",fontSize:"13px"},
+          "이번 주 순서 정보가 없어요");
+        return D({background:"#fff",borderRadius:"12px",border:"2px solid #CBD5E1",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
+          D({},
+            D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
+              SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
+              mkShareBtn()
+            ),
+            D({display:"flex",gap:"8px"},
+              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
+                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))),
+              D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"16px"},"/"),
+              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
+                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name)))
+            )
+          ),
+          D({},
+            D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
+            D({background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
+              SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.prole,s.pname)))
+          )
+        );
+      })();
+
+      // 다음 주 아코디언 토글 버튼
+      const nextToggle=nextWeek<WEEK_DATES.length
+        ?B({width:"100%",background:"#F8FAFC",border:"1px solid #E2E8F0",
+            borderRadius:nextOpen?"10px 10px 0 0":"10px",
+            padding:"9px 14px",marginTop:"10px",
+            display:"flex",justifyContent:"space-between",alignItems:"center",
+            cursor:"pointer",fontWeight:"600",fontSize:"13px",color:"#64748B"},
+            ()=>{S.scheduleNextOpen=!S.scheduleNextOpen;render();},
+            D({display:"flex",alignItems:"center",gap:"6px"},
+              SP({},(nextOpen?"▾ ":"▸ ")+`다음 주 진행 순서 (${WEEK_DATES[nextWeek]})`),
+              mkScheduleBox(nextSc,nextWeek)===null?null:null
+            ),
+            nextOpen?null:null
+          )
+        :null;
+
+      // 다음 주 내용 (펼쳐졌을 때)
+      const nextContent=(nextOpen&&nextWeek<WEEK_DATES.length)
+        ?(()=>{
+          const s=nextSc;
+          const dateStr=WEEK_DATES[nextWeek]||"";
+          const kakaoText=s?`[어와나 ${nextWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+          const shareBtn=(()=>{
+            const svgNS="http://www.w3.org/2000/svg";
+            const svg=document.createElementNS(svgNS,"svg");
+            svg.setAttribute("width","18");svg.setAttribute("height","18");
+            svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
+            const path=document.createElementNS(svgNS,"path");
+            path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
+            svg.appendChild(path);
+            const btn=document.createElement("button");
+            btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
+            btn.appendChild(svg);
+            btn.addEventListener("click",e=>{e.stopPropagation();
+              if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
+              else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
+            });
+            return btn;
+          })();
+          if(!s) return D({background:"#F8FAFC",borderRadius:"0 0 10px 10px",border:"1px solid #E2E8F0",
+            borderTop:"none",padding:"14px",textAlign:"center",color:"#94A3B8",fontSize:"13px"},"순서 정보가 없어요");
+          return D({background:"#F8FAFC",borderRadius:"0 0 10px 10px",border:"1px solid #E2E8F0",
+            borderTop:"none",padding:"14px",display:"flex",flexDirection:"column",gap:"12px"},
+            D({},
+              D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
+                SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
+                shareBtn
+              ),
+              D({display:"flex",gap:"8px"},
+                D({flex:"1",background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+                  SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))),
+                D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"14px"},"/"),
+                D({flex:"1",background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+                  SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name)))
+              )
+            ),
+            D({},
+              D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
+              D({background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+                SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.prole,s.pname)))
+            )
+          );
+        })()
+        :null;
+
+      return D({},
+        thisBox,
+        nextToggle,
+        nextContent
+      );
+    })(),
     teamSection
   );
 }
@@ -2411,6 +2693,7 @@ function buildAwardsTab(){
       items.push({label:"출석상",color:"#7C3AED",bg:"#F5F3FF",border:"#DDD6FE"});
     if(getAwardGroup(hb)==="sparks"){
       const hbc=HB_BADGE_COLOR[hb]||{color:"#22C55E",light:"#F0FDF4",border:"#86EFAC"};
+      if(a.enroll) items.push({label:hb+" 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.badge) items.push({label:HB_BADGE_LABEL[hb]||"승급표식",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.wing)  items.push({label:HB_WING_LABEL[hb]||"날개핀",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.gems){
@@ -2422,6 +2705,7 @@ function buildAwardsTab(){
       }
     } else {
       const hbc=HB_TNT_COLOR[hb]||{color:"#64748B",light:"#F8FAFC",border:"#E2E8F0"};
+      if(a.enroll) items.push({label:hb+" 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.award) items.push({label:hb+" 수상대",color:hbc.color,bg:hbc.light,border:hbc.border});
       (a.seals||[]).sort((x,y)=>parseInt(x)-parseInt(y))
         .forEach(s=>items.push({label:s,color:hbc.color,bg:hbc.light,border:hbc.border}));
@@ -2555,11 +2839,75 @@ function buildAwardsTab(){
         const box=D({background:"#F8FAFC",borderRadius:"10px",padding:"10px 12px",
           border:"1px solid #E2E8F0",
           display:"flex",flexDirection:"column",gap:"6px",flex:"1"});
-        // 클럽 헤더
-        const hdr=D({display:"flex",alignItems:"center",gap:"4px",marginBottom:"2px"});
-        hdr.appendChild(type==="sparks"?mkSparksIcon(14):mkTntIcon(14));
-        hdr.appendChild(SP({fontSize:"16px",fontWeight:"800",color:grpColor},
-          type==="sparks"?" 스팍스":" 티앤티"));
+        // 클럽 헤더 (클릭 시 멤버 팝업)
+        const hbs=type==="sparks"?sparksHbs:tntHbs;
+        const members=S.students.filter(s=>s.team===t.id&&hbs.includes(s.handbook))
+          .sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+        const hdr=D({display:"flex",alignItems:"center",gap:"4px",marginBottom:"2px",
+          cursor:"pointer",borderRadius:"6px",padding:"2px 4px",
+          transition:"background 0.15s"},
+          (()=>{const h=document.createElement("div");h.style.cssText="display:flex;align-items:center;gap:4px;width:100%";
+          h.appendChild(type==="sparks"?mkSparksIcon(14):mkTntIcon(14));
+          h.appendChild(SP({fontSize:"16px",fontWeight:"800",color:grpColor},type==="sparks"?" 스팍스":" 티앤티"));
+          h.appendChild(SP({fontSize:"11px",color:"#94A3B8",marginLeft:"auto"},"👆"));
+          return h;})()
+        );
+        hdr.addEventListener("mouseenter",()=>hdr.style.background="#F1F5F9");
+        hdr.addEventListener("mouseleave",()=>hdr.style.background="");
+        hdr.addEventListener("click",()=>{
+          // 기존 팝업 제거
+          const prev=document.getElementById("_memberPopup");if(prev)prev.remove();
+          const overlay=document.createElement("div");
+          overlay.id="_memberPopup";
+          overlay.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:500;display:flex;align-items:flex-end;justify-content:center";
+          overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+          const sheet=document.createElement("div");
+          sheet.style.cssText="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 20px 40px;max-height:70vh;overflow-y:auto";
+          // 헤더
+          const sheetHdr=document.createElement("div");
+          sheetHdr.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px";
+          const titleEl=document.createElement("div");
+          titleEl.style.cssText="display:flex;align-items:center;gap:6px;font-weight:800;font-size:16px";
+          titleEl.appendChild(type==="sparks"?mkSparksIcon(16):mkTntIcon(16));
+          titleEl.appendChild(document.createTextNode((t.name+"팀 ")+(type==="sparks"?"스팍스":"티앤티")+" ("+members.length+"명)"));
+          const closeBtn=document.createElement("button");
+          closeBtn.textContent="×";closeBtn.style.cssText="background:none;border:none;font-size:22px;cursor:pointer;color:#64748B";
+          closeBtn.onclick=()=>overlay.remove();
+          sheetHdr.appendChild(titleEl);sheetHdr.appendChild(closeBtn);
+          sheet.appendChild(sheetHdr);
+          if(members.length===0){
+            const empty=document.createElement("div");
+            empty.style.cssText="text-align:center;color:#94A3B8;font-size:14px;padding:20px";
+            empty.textContent="멤버가 없어요";
+            sheet.appendChild(empty);
+          } else {
+            members.forEach(s=>{
+              const sd=getSD(s.id);
+              const signs=typeof sd.signs==="number"?sd.signs:parseFloat(sd.signs)||0;
+              const row=document.createElement("div");
+              const attended=(wd.students?.[s.id]||{}).attendance;
+              row.style.cssText="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #F1F5F9;opacity:"+(!attended?"0.4":"1");
+              const nameEl=document.createElement("div");
+              nameEl.style.cssText="display:flex;align-items:center;gap:8px";
+              const dot=document.createElement("div");
+              dot.style.cssText="width:8px;height:8px;border-radius:50%;background:"+(!attended?"#CBD5E1":t.color)+";flex-shrink:0";
+              const nm=document.createElement("span");
+              nm.style.cssText="font-weight:700;font-size:15px;color:"+(!attended?"#94A3B8":"#1E293B");
+              nm.textContent=s.name;
+              const hbTag=document.createElement("span");
+              hbTag.style.cssText="font-size:11px;color:#94A3B8;background:#F1F5F9;border-radius:4px;padding:1px 6px";
+              hbTag.textContent=s.handbook;
+              nameEl.appendChild(dot);nameEl.appendChild(nm);nameEl.appendChild(hbTag);
+              const signsEl=document.createElement("span");
+              signsEl.style.cssText="font-size:13px;font-weight:700;color:"+(!attended?"#CBD5E1":"#475569");
+              signsEl.textContent=!attended?"-개":"암송 "+Math.round(signs*10)/10+"개";
+              row.appendChild(nameEl);row.appendChild(signsEl);
+              sheet.appendChild(row);
+            });
+          }
+          overlay.appendChild(sheet);
+          document.body.appendChild(overlay);
+        });
         box.appendChild(hdr);
         // 핸드북 행
         const hbRow=D({display:"flex",justifyContent:"space-between",alignItems:"center"});
@@ -2596,7 +2944,11 @@ function buildAwardsTab(){
     const ceremonyBtn=wd.gameFinalized
       ?B({width:"100%",background:"#0EA5E9",color:"#fff",
         border:"none",borderRadius:"12px",padding:"13px",fontWeight:"800",fontSize:"15px",
-        cursor:"pointer",marginBottom:"12px"},()=>startCeremony(),"🏆 시상식 공개")
+        cursor:"pointer",marginBottom:"12px"},async()=>{
+        const snap=await getDoc(doc(db,"awana","week_"+S.week));
+        if(snap.exists()) S.wdata[S.week]=snap.data();
+        startCeremony();
+      },"🏆 시상식 공개")
       :null;
 
     detailSection=D({},
@@ -2688,15 +3040,36 @@ function buildAwardsTab(){
   }
 
   // ── 특이사항 공유 버튼 ──
-  function buildMemoText(){
-    const weekStr=S.week===0?"0주차 ("+WEEK_DATES[0]+")":S.week+"주차 ("+WEEK_DATES[S.week]+")";
-    const withMemo=S.students.filter(s=>(wd&&wd.students&&wd.students[s.id]&&wd.students[s.id].memo||"").trim());
-    if(!withMemo.length) return "["+weekStr+"] 특이사항 없음";
-    return withMemo.map(s=>{
-      const memo=(wd&&wd.students&&wd.students[s.id]&&wd.students[s.id].memo||"").trim();
-      const t=TEAMS.find(x=>x.id===s.team);
-      return "["+weekStr+"] "+s.name+"("+s.handbook+" | "+(t?t.name:"")+"팀): "+memo;
-    }).join("\n");
+  const sparksHbsList=["행글라이더","윙러너","스카이스토머"];
+  const advHbsList=["어드벤처1","어드벤처2"];
+  const chalHbsList=["챌린지1","챌린지2"];
+  if(!S.memoFilter) S.memoFilter="all";
+
+  function buildMemoText(filter){
+    const dateStr=WEEK_DATES[S.week]||"";
+    const weekLabel=`[${S.week}주차 ${dateStr}]`;
+    let students=S.students;
+    if(filter==="sparks") students=students.filter(s=>sparksHbsList.includes(s.handbook));
+    else if(filter==="adventure") students=students.filter(s=>advHbsList.includes(s.handbook));
+    else if(filter==="challenge") students=students.filter(s=>chalHbsList.includes(s.handbook));
+
+    const lines=[];
+    students.forEach(s=>{
+      const sd=wd?.students?.[s.id]||{};
+      const memo=(sd.memo||"").trim();
+      const absent=!sd.attendance;
+      const noUniform=sd.attendance&&!sd.uniform;
+      const aw=sd.awards||{};
+      const enrolled=!!(aw.enroll||s.enroll);
+      const noUniformAfterEnroll=enrolled&&sd.attendance&&!sd.uniform;
+      const parts=[];
+      if(absent) parts.push("결석");
+      if(noUniformAfterEnroll) parts.push("단복 없음");
+      if(memo) parts.push(memo);
+      if(parts.length) lines.push(`[${s.name}] ${parts.join(" / ")}`);
+    });
+    if(!lines.length) return weekLabel+"\n특이사항 없음";
+    return weekLabel+"\n"+lines.join("\n");
   }
   function saveAsTxt(text){
     const weekStr=S.week===0?"0주차":S.week+"주차";
@@ -2706,20 +3079,37 @@ function buildAwardsTab(){
     a.href=url;a.download="어와나_"+weekStr+"_특이사항.txt";
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
   }
-  const shareBtn=B({width:"100%",background:"linear-gradient(135deg,#FEE500,#F5D800)",
-    color:"#1E293B",border:"none",borderRadius:"12px",padding:"13px",
-    fontWeight:"800",fontSize:"14px",cursor:"pointer",marginTop:"12px"
+
+  const filterOptions=[["all","전체"],["sparks","스팍스"],["adventure","어드벤처"],["challenge","챌린지"]];
+  const filterRow=D({display:"flex",gap:"6px",flex:"1"});
+  filterOptions.forEach(([val,label])=>{
+    const active=S.memoFilter===val;
+    filterRow.appendChild(B({
+      padding:"8px 12px",borderRadius:"10px",border:`1px solid ${active?"#1E293B":"#E2E8F0"}`,
+      background:active?"#1E293B":"#fff",color:active?"#fff":"#64748B",
+      fontWeight:"700",fontSize:"13px",cursor:"pointer",whiteSpace:"nowrap"
+    },()=>{S.memoFilter=val;render();},label));
+  });
+
+  const shareBtn=B({background:"linear-gradient(135deg,#FEE500,#F5D800)",
+    color:"#1E293B",border:"none",borderRadius:"10px",padding:"8px 14px",
+    fontWeight:"800",fontSize:"13px",cursor:"pointer",whiteSpace:"nowrap",flexShrink:"0"
   },()=>{
-    const text=buildMemoText();
+    const text=buildMemoText(S.memoFilter);
     const weekStr=S.week===0?"0주차":S.week+"주차";
     if(navigator.share){navigator.share({title:"어와나 "+weekStr+" 특이사항",text}).catch(()=>saveAsTxt(text));}
     else{saveAsTxt(text);}
-  },"📋 특이사항 공유 / 저장");
+  },"📋 공유 / 저장");
+
+  const shareRow=D({display:"flex",gap:"8px",alignItems:"center",marginTop:"12px"},
+    filterRow,
+    shareBtn
+  );
 
   return D({},
     perspectiveTabs,
     detailSection,
-    shareBtn
+    shareRow
   );
 }
 
