@@ -40,9 +40,9 @@ const db = getFirestore(FB);
 // ════════════════════════════════════
 const TEAMS = [
   {id:"red",    name:"빨강", color:"#EF4444", light:"#FEF2F2", border:"#EF4444", grad:"linear-gradient(135deg,#EF4444,#DC2626)"},
-  {id:"yellow", name:"노랑", color:"#EAB308", light:"#FEFCE8", border:"#EAB308", grad:"linear-gradient(135deg,#EAB308,#CA8A04)"},
-  {id:"green",  name:"초록", color:"#22C55E", light:"#F0FDF4", border:"#22C55E", grad:"linear-gradient(135deg,#22C55E,#16A34A)"},
   {id:"blue",   name:"파랑", color:"#3B82F6", light:"#EFF6FF", border:"#3B82F6", grad:"linear-gradient(135deg,#3B82F6,#2563EB)"},
+  {id:"green",  name:"초록", color:"#22C55E", light:"#F0FDF4", border:"#22C55E", grad:"linear-gradient(135deg,#22C55E,#16A34A)"},
+  {id:"yellow", name:"노랑", color:"#EAB308", light:"#FEFCE8", border:"#EAB308", grad:"linear-gradient(135deg,#EAB308,#CA8A04)"},
 ];
 const TEAM_MAP = {"빨강팀":"red","노랑팀":"yellow","초록팀":"green","파랑팀":"blue","빨강":"red","노랑":"yellow","초록":"green","파랑":"blue"};
 const HANDBOOKS = ["행글라이더","윙러너","스카이스토머","어드벤처1","어드벤처2","챌린지1","챌린지2"];
@@ -365,6 +365,36 @@ function cAnimate(fromScores,toScores,dur,onDone){
   })();
 }
 function cNextStep(){
+  // dramatic 페이즈: 클릭하면 1등 바만 치솟고 우승+준우승 동시 발표
+  if(S.cPhase==="dramatic"){
+    const winner=S._dramaticWinner||[];
+    const second=S._dramaticSecond||[];
+    const groups=S._dramaticGroups||[];
+    const noDecrease=(from,to)=>{const safe={};TEAMS.forEach(t=>{safe[t.id]=Math.max(from[t.id]||0,to[t.id]||0);});return safe;};
+    S.cPhase="animating";
+    S.cBlinkGroup=null; S.cBlink=null;
+    S.cDynBanner="🥁 우승팀은...?!"; S.cDynBanner2=""; render();
+    // 1등 바만 최종 점수로 치솟기 (2등은 아직 cRevealed에 추가 안 함)
+    const from={...S.cScores};
+    const to={...S.cScores};
+    winner.forEach(id=>{to[id]=S.cTargets[id]||0;});
+    playSound("drumroll");
+    cAnimate(from,to,2500,()=>{
+      // 1등+2등 동시에 공개
+      S.cRevealed=[...S.cRevealed,...winner,...second];
+      S.cGroupStep=(S._dramaticGIdx||0)+2;
+      const winName=winner.map(id=>TEAMS.find(t=>t.id===id)?.name).join(", ");
+      const secName=second.map(id=>TEAMS.find(t=>t.id===id)?.name).join(", ");
+      S.cDynBanner=`🏆 우승! ${winName}팀!`;
+      S.cDynBanner2=`🥈 준우승 ${secName}팀`;
+      S.cPhase="done";
+      S.cBlinkGroup=winner; S.cBlink=winner[0];
+      playSound("fanfare_big");
+      render(); setTimeout(spawnConfetti,50);
+      setTimeout(()=>{S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";render();},8000);
+    });
+    return;
+  }
   if(S.cPhase==="animating"||S.cPhase==="done") return;
   const step=S.cStep;
   S.cPhase="animating";
@@ -404,8 +434,7 @@ function cNextStep(){
       S.cPhase="done";
       S.cBlinkGroup=winners;
       S.cBlink=winners[0];
-      spawnConfetti(); playSound("fanfare_big");
-      render();
+      playSound("fanfare_big"); render(); setTimeout(spawnConfetti,50);
       setTimeout(()=>{
         S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";
         render();
@@ -419,7 +448,7 @@ function cNextStep(){
 function _revealGroup(groups, gIdx, noDecrease){
   const totalGroups=groups.length;
   if(gIdx>=totalGroups){
-    S.cPhase="done"; S.cBannerIdx=9; spawnConfetti(); playSound("fanfare_big"); render();
+    S.cPhase="done"; S.cBannerIdx=9; playSound("fanfare_big"); render(); setTimeout(spawnConfetti,50);
     return;
   }
   const group=groups[gIdx]; // 이번에 공개할 팀들
@@ -436,8 +465,7 @@ function _revealGroup(groups, gIdx, noDecrease){
 
   playSound("drumroll");
   cAnimate(from,to,3200,()=>{
-    // 그룹 공개
-    S.cRevealed=[...S.cRevealed,...group];
+    // 그룹 공개 (dramatic일 때는 나중에 추가)
     S.cGroupStep=gIdx+1;
 
     // 배너 인덱스 업데이트
@@ -449,30 +477,55 @@ function _revealGroup(groups, gIdx, noDecrease){
       // 1등 바 올라온 후 → 바로 우승 선언
       const isTieLast=group.length>1;
       const winNames=group.map(id=>TEAMS.find(t=>t.id===id)?.name).join(", ");
+      S.cRevealed=[...S.cRevealed,...group];
       S.cDynBanner=isTieLast?`🏆 공동 우승! ${winNames}팀!`:`🏆 우승! ${winNames}팀!`;
       S.cDynBanner2="";
       S.cPhase="done";
       S.cBlinkGroup=group; S.cBlink=group[0];
-      spawnConfetti(); playSound("fanfare_big");
+      playSound("fanfare_big");
+      render(); setTimeout(spawnConfetti,50);
       setTimeout(()=>{S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";render()},10000);
     } else {
       // 중간 등수 공개
-      const nextGroup=groups[gIdx+1];
-      S.cPhase="paused";
-      playSound("chime");
       const teamsAbove=groups.slice(gIdx+1).reduce((s,g)=>s+g.length,0);
-      const curRank=teamsAbove+group.length;
-      const nextRank=teamsAbove;
+      const curRank=teamsAbove+1;
+      const teamsAboveNext=groups.slice(gIdx+2).reduce((s,g)=>s+g.length,0);
+      const nextRank=teamsAboveNext+1;
       const isSecond=nextRank===1;
-      // 2등 = 준우승, 나머지는 숫자
       let curLabel;
       if(curRank===2) curLabel=isTie?"공동 준우승":"준우승";
       else curLabel=isTie?`공동 ${curRank}등`:`${curRank}등`;
-      S.cDynBanner=`${names}팀 ${curLabel}! 🎉`;
-      S.cDynBanner2=isSecond?`바로! 🏆 우승은?! 🥁`:`다음은 ${nextGroup.length>1?"공동 "+nextRank+"등":nextRank+"등"}은?! 🥁`;
-      S.cBlinkGroup=group;
-      S.cBlink=group[0];
-      setTimeout(()=>{if(S.cBlink===group[0]){S.cBlink=null;S.cBlinkGroup=null;render();}},3000);
+
+      // ★ 2등 단독 + 다음이 1등 → 극적 연출 모드
+      const nextGroup=groups[gIdx+1];
+      const isDramatic = isSecond && !isTie && nextGroup.length===1;
+
+      if(isDramatic){
+        // 2등 바 올라온 상태에서 1등+2등 동시 깜빡 + "과연 우승팀은?"
+        S.cPhase="dramatic"; // 새 페이즈: 클릭 대기
+        playSound("chime");
+        const winnerName=TEAMS.find(t=>t.id===nextGroup[0])?.name;
+        const secondName=names;
+        S.cDynBanner=`🥁 과연 우승팀은?!`;
+        S.cDynBanner2=``;
+        // 1등+2등 둘 다 깜빡
+        S.cBlinkGroup=[...group, ...nextGroup];
+        S.cBlink=group[0];
+        // 클릭 시 동작을 저장
+        S._dramaticGroups=groups;
+        S._dramaticGIdx=gIdx;
+        S._dramaticWinner=nextGroup;
+        S._dramaticSecond=group;
+      } else {
+        S.cRevealed=[...S.cRevealed,...group];
+        S.cPhase="paused";
+        playSound("chime");
+        S.cDynBanner=`${names}팀 ${curLabel}! 🎉`;
+        S.cDynBanner2=isSecond?`🏆 우승과 준우승은?! 🥁`:`다음은 ${nextRank}등은?! 🥁`;
+        S.cBlinkGroup=group;
+        S.cBlink=group[0];
+        setTimeout(()=>{if(S.cBlink===group[0]){S.cBlik=null;S.cBlinkGroup=null;render();}},3000);
+      }
     }
     render();
   });
@@ -484,7 +537,7 @@ function updateBarsDirect(){
     const num=document.getElementById("cnum_"+t.id);
     const above=document.getElementById("above_"+t.id);
     if(bar){
-      const newH=Math.max(4,Math.round((S.cScores[t.id]/maxScore)*500));
+      const newH=Math.max(4,Math.min(450,Math.round((S.cScores[t.id]/maxScore)*500)));
       const curH=parseInt(bar.style.height)||0;
       const h=Math.max(curH,newH);
       bar.style.height=h+"px";
@@ -497,17 +550,29 @@ function revealNext(){}
 function spawnConfetti(){
   const c=document.getElementById("cconf");if(!c) return;
   c.innerHTML="";
-  ["#EF4444","#EAB308","#22C55E","#3B82F6","#fff","#ffd700","#FF69B4","#FF8C00"].forEach(col=>{
-    for(let i=0;i<22;i++){
-      const d=document.createElement("div");
-      const sz=8+Math.random()*14;
-      Object.assign(d.style,{position:"absolute",width:sz+"px",height:sz+"px",
-        background:col,borderRadius:Math.random()>.4?"50%":"3px",
-        left:Math.random()*100+"%",top:"-20px",
-        animation:`confettiFall ${1.2+Math.random()*2.5}s ease ${Math.random()*1.5}s forwards`});
-      c.appendChild(d);
-    }
-  });
+  // keyframes를 JS로 직접 생성 (CSS 변수 없이)
+  const COLORS=["#EF4444","#3B82F6","#22C55E","#EAB308","#FFD700","#FF69B4","#A855F7","#06B6D4","#ffffff","#FF8C00"];
+  const SHAPES=["circle","rect","ribbon"];
+  for(let i=0;i<200;i++){
+    const col=COLORS[Math.floor(Math.random()*COLORS.length)];
+    const shape=SHAPES[Math.floor(Math.random()*SHAPES.length)];
+    const sz=shape==="ribbon"?(3+Math.random()*5):(6+Math.random()*10);
+    const h=shape==="ribbon"?(sz*5):(sz);
+    const dur=(2.5+Math.random()*3.0).toFixed(2);
+    const delay=(Math.random()*2.5).toFixed(2);
+    const endX=(-120+Math.random()*240).toFixed(0);
+    const rot=(Math.random()*720-360).toFixed(0);
+    const left=(Math.random()*100).toFixed(1);
+    const br=shape==="circle"?"50%":shape==="ribbon"?"2px":"3px";
+    // 각 조각마다 고유 keyframe 이름
+    const kfName="cf"+i;
+    const st=document.createElement("style");
+    st.textContent=`@keyframes ${kfName}{0%{transform:translateY(-20px) translateX(0px) rotate(0deg);opacity:1}100%{transform:translateY(105vh) translateX(${endX}px) rotate(${rot}deg);opacity:0}}`;
+    document.head.appendChild(st);
+    const d=document.createElement("div");
+    d.style.cssText=`position:fixed;top:-20px;left:${left}%;width:${sz.toFixed(1)}px;height:${h.toFixed(1)}px;background:${col};border-radius:${br};pointer-events:none;z-index:9999;animation:${kfName} ${dur}s linear ${delay}s forwards;`;
+    c.appendChild(d);
+  }
 }
 
 // ════════════════════════════════════
@@ -928,7 +993,7 @@ function buildGame(){
           ? B({background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:"10px",
               padding:"10px 12px",color:"#64748B",fontWeight:"700",fontSize:"13px",
               cursor:"pointer",whiteSpace:"nowrap",flexShrink:"0"},
-              ()=>setFinalized(true),"🏆 게임 종료")
+              ()=>setFinalized(true),"🏁 게임 종료")
           : B({background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:"10px",
               padding:"10px 12px",color:"#EF4444",fontWeight:"700",fontSize:"13px",
               cursor:"pointer",whiteSpace:"nowrap",flexShrink:"0"},
@@ -939,12 +1004,11 @@ function buildGame(){
       const mkLine=(type)=>{
         const lbl=type==="sparks"?"스팍스":"티앤티";
         const lblColor=type==="sparks"?"#EF4444":"#16A34A";
-        const sorted=[...TEAMS].sort((a,b)=>gameCum(type,b.id)-gameCum(type,a.id));
         const row=D({display:"flex",alignItems:"center",gap:"6px",
           padding:"6px 10px",background:"#F8FAFC",
           borderRadius:"8px",border:"1px solid #E2E8F0"});
 
-        sorted.forEach((t)=>{
+        TEAMS.forEach((t)=>{
           const pts=gameCum(type,t.id);
           const cell=D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",gap:"0px"});
           cell.appendChild(SP({fontSize:"12px",fontWeight:"800",color:t.color,textAlign:"center"},t.name));
@@ -1115,7 +1179,7 @@ function buildGameType(type,wd,fin,locked){
       sheet.appendChild(D({marginBottom:"12px"},
         D({display:"flex",justifyContent:"space-between",marginBottom:"4px"},
           D({display:"flex",alignItems:"center",gap:"6px"},
-            SP({fontSize:"16px"},["🥇","🥈","🥉",""][i]),
+            SP({fontSize:"16px"},["🥇","🥈","🥉","❤️"][i]),
             SP({fontWeight:"700",color:t.color,fontSize:"14px"},t.name,"팀")
           ),
           SP({fontWeight:"800",color:t.color,fontSize:"14px"},gameCum(type,t.id).toLocaleString(),"점")
@@ -1161,7 +1225,7 @@ function buildResult(sorted){
         padding:"14px 16px",marginBottom:"10px"},
         D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
           D({display:"flex",alignItems:"center",gap:"8px"},
-            SP({fontSize:"18px"},["🥇","🥈","🥉",""][i]),
+            SP({fontSize:"18px"},["🥇","🥈","🥉","❤️"][i]),
             SP({fontWeight:"800",color:t.color,fontSize:"15px"},t.name,"팀")
           ),
           SP({fontWeight:"800",fontSize:"17px",color:t.color},totalScore(t.id).toLocaleString(),"점")
@@ -1438,7 +1502,7 @@ function buildCeremony(){
     const sc=S.cTargets?.[tid]||0;
     const rank=sorted.filter(t=>(S.cTargets?.[t.id]||0)>sc).length+1;
     const tiedCount=sorted.filter(t=>(S.cTargets?.[t.id]||0)===sc).length;
-    return tiedCount>1?`공동 ${rank}등 🎉`:`${rank}등 ${rank===1?"🏆":rank===2?"🥈":rank===3?"🥉":""}`;
+    return tiedCount>1?`공동 ${rank}등 🎉`:`${rank}등 ${rank===1?"🏆":rank===2?"🥈":rank===3?"🥉":"❤️"}`;
   }
 
   // 배너 텍스트: S.cDynBanner 우선, 없으면 단계별 기본
@@ -1454,7 +1518,7 @@ function buildCeremony(){
   } else if(step===0||isAnim&&step===0){
     bannerText="🏃 게임 점수부터 공개!";
   } else if(step<=2){
-    bannerText="📖 암송 점수 합산! 🥁";
+    bannerText="📖 핸드북 점수 합산! 🥁";
   } else {
     bannerText="진행 중...";
   }
@@ -1480,19 +1544,20 @@ function buildCeremony(){
     ...bannerLines.map((line,i)=>line?D({
       fontSize:i===0?fs.banner:fs.banner,
       fontWeight:"900",
-      color:i===0?"#1E293B":"#D97706",
+      color:i===0?"#1E293B":"#1D4ED8",
       lineHeight:"1.4"
     },line):null).filter(Boolean)
   );
 
   const BAR_MAX=500;
+  const BAR_CAP=Math.round(BAR_MAX*0.90);
 
   const barArea=D({display:"flex",alignItems:"flex-end",gap:"clamp(4px,0.8vw,12px)",
     width:"100%",height:"100%",boxSizing:"border-box",padding:"0 clamp(6px,1vw,16px)"},
     ...FIXED.map(tid=>{
       const t=TEAMS.find(x=>x.id===tid);
       const score=S.cScores?.[t.id]||0;
-      const barH=Math.max(isReady?2:4,Math.round((score/maxScore)*BAR_MAX));
+      const barH=Math.max(isReady?2:4,Math.min(BAR_CAP,Math.round((score/maxScore)*BAR_MAX)));
       const rev=S.cRevealed?.includes(t.id);
       const rank=sorted.findIndex(x=>x.id===t.id);
       const isBlinking=S.cBlinkGroup?S.cBlinkGroup.includes(t.id):(S.cBlink===t.id);
@@ -1561,16 +1626,17 @@ function buildCeremony(){
     })
   );
 
-  const btnLabel=isReady?"\u25b6 시작하기":isDone?"완료":"다음 진행";
+  const isDramatic=S.cPhase==="dramatic";
+  const btnLabel=isReady?"\u25b6 시작하기":isDone?"완료":isDramatic?"🏆 우승 공개!":"다음 진행";
   const mainBtn=!isDone?B({
-    background:isAnim?"#E2E8F0":"#1E293B",
-    color:isAnim?"#94A3B8":"#fff",border:"none",
+    background:isDramatic?"linear-gradient(135deg,#F59E0B,#D97706)":isAnim?"#E2E8F0":"#1E293B",
+    color:isAnim&&!isDramatic?"#94A3B8":"#fff",border:"none",
     borderRadius:"clamp(8px,1vw,12px)",
     padding:"clamp(8px,1.2vh,14px) clamp(14px,2.5vw,32px)",
     fontWeight:"800",fontSize:fs.btn,
     cursor:isAnim?"not-allowed":"pointer",
     opacity:isAnim?"0.5":"1",whiteSpace:"nowrap"
-  },()=>{if(!isAnim)cNextStep();},btnLabel):null;
+  },()=>{if(!isAnim||isDramatic)cNextStep();},btnLabel):null;
 
   const closeBtn=B({
     background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",
@@ -1578,6 +1644,31 @@ function buildCeremony(){
     padding:"clamp(6px,1vh,10px) clamp(10px,1.5vw,20px)",
     fontWeight:"600",fontSize:fs.btn,cursor:"pointer",whiteSpace:"nowrap"
   },()=>{stopAllSounds();S.ceremony=false;S.cBlink=null;render();},"닫기");
+
+  const skipBtn=B({
+    background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",
+    borderRadius:"clamp(6px,0.8vw,10px)",
+    padding:"clamp(6px,1vh,10px) clamp(10px,1.5vw,20px)",
+    fontWeight:"600",fontSize:fs.btn,cursor:"pointer",whiteSpace:"nowrap"
+  },()=>{
+    stopAllSounds();
+    // 모든 팀 최종 점수로 즉시 세팅
+    TEAMS.forEach(t=>{
+      S.cScores[t.id]=S.cTargets?.[t.id]||totalScore(t.id);
+      S.cGameScores[t.id]=(rankScores("sparks")[t.id]||0)+(rankScores("tnt")[t.id]||0);
+      S.cHbScores[t.id]=(S.cTargets?.[t.id]||totalScore(t.id))-(S.cGameScores[t.id]||0);
+    });
+    S.cRevealed=TEAMS.map(t=>t.id);
+    S.cPhase="done";
+    S.cStep=99;
+    S.cGroupStep=(S.cTieGroups||[]).length;
+    const winners=(S.cTieGroups||[])[((S.cTieGroups||[]).length)-1]||[];
+    const winNames=winners.map(id=>TEAMS.find(t=>t.id===id)?.name).join(", ");
+    S.cDynBanner=winners.length>1?`🏆 공동 우승! ${winNames}팀!`:`🏆 우승! ${winNames}팀!`;
+    S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";
+    S.cBlinkGroup=winners; S.cBlink=winners[0];
+    render(); setTimeout(spawnConfetti,50);
+  },"결과 바로 보기");
 
   const topBar=D({
     width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -1589,7 +1680,7 @@ function buildCeremony(){
       D({fontSize:fs.week,fontWeight:"700",color:"#1E293B"},
         (S.week===0?"0주차":S.week+"주차")+" 최종 순위")
     ),
-    D({display:"flex",gap:"clamp(6px,0.8vw,10px)",alignItems:"center"},mainBtn,closeBtn)
+    D({display:"flex",gap:"clamp(6px,0.8vw,10px)",alignItems:"center"},mainBtn,skipBtn,closeBtn)
   );
 
   if(!document.getElementById("_blinkStyle")){
@@ -1604,7 +1695,7 @@ function buildCeremony(){
     background:"#fff",border:"clamp(4px,0.8vw,10px) solid #DC2626",
     boxSizing:"border-box",zIndex:"200",
     display:"flex",flexDirection:"column",alignItems:"center",overflow:"hidden"},
-    el("div",{id:"cconf",style:{position:"absolute",inset:"0",pointerEvents:"none",overflow:"hidden"}}),
+    el("div",{id:"cconf",style:{position:"fixed",inset:"0",pointerEvents:"none",zIndex:"9999"}}),
     topBar,
     D({width:"100%",textAlign:"center",padding:"0 clamp(8px,1vw,16px)",
       flexShrink:"0",position:"relative",zIndex:"1"},bannerArea),
