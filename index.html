@@ -2854,6 +2854,7 @@ function buildAwardsTab(){
         );
         hdr.addEventListener("mouseenter",()=>hdr.style.background="#F1F5F9");
         hdr.addEventListener("mouseleave",()=>hdr.style.background="");
+        const _isAdminForPopup=S.role==="admin";
         hdr.addEventListener("click",()=>{
           // 기존 팝업 제거
           const prev=document.getElementById("_memberPopup");if(prev)prev.remove();
@@ -2900,7 +2901,7 @@ function buildAwardsTab(){
               nameEl.appendChild(dot);nameEl.appendChild(nm);nameEl.appendChild(hbTag);
               const signsEl=document.createElement("span");
               signsEl.style.cssText="font-size:13px;font-weight:700;color:"+(!attended?"#CBD5E1":"#475569");
-              signsEl.textContent=!attended?"-개":"암송 "+Math.round(signs*10)/10+"개";
+              signsEl.textContent=_isAdminForPopup?((!attended||signs===0)?"-개":"암송 "+Math.round(signs*10)/10+"개"):"";
               row.appendChild(nameEl);row.appendChild(signsEl);
               sheet.appendChild(row);
             });
