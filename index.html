@@ -302,7 +302,9 @@ const SOUNDS={
   drumroll:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/drumroll.mp3",
   chime:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/chime.mp3",
   fanfare:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/fanfare.mp3",
-  fanfare_big:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/fanfare_big.mp3"
+  fanfare_big:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/fanfare_big.mp3",
+  fanfare_big2:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/fanfare_big2.mp3",
+  drumroll_final:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/drumroll_final.mp3"
 };
 const _ac={};
 function stopAllSounds(){Object.values(_ac).forEach(a=>{try{a.pause();a.currentTime=0;}catch(e){}});}
@@ -317,6 +319,25 @@ function playFallback(key){
     else if(key==="fanfare"){[440,523,659,523].forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type="square";o.frequency.value=f;const t=ctx.currentTime+i*0.15;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.2,t+0.02);g.gain.linearRampToValueAtTime(0,t+0.3);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.35);});}
     else if(key==="fanfare_big"){[523,659,784,1047,784,1047,1319].forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type="square";o.frequency.value=f;const t=ctx.currentTime+i*0.15;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);g.gain.linearRampToValueAtTime(0,t+0.3);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.35);});}
   }catch(e){}
+}
+function playFanfareBig(){
+  // fanfare_big 먼저, 끝나면 fanfare_big2 이어 재생
+  stopAllSounds();
+  try{
+    if(!_ac["fanfare_big"]) _ac["fanfare_big"]=new Audio(SOUNDS["fanfare_big"]);
+    const a=_ac["fanfare_big"];
+    a.currentTime=0;
+    a.onended=()=>{
+      try{
+        if(!_ac["fanfare_big2"]) _ac["fanfare_big2"]=new Audio(SOUNDS["fanfare_big2"]);
+        const b=_ac["fanfare_big2"];
+        b.currentTime=0;
+        b.onended=null;
+        b.play().catch(()=>{});
+      }catch(e){}
+    };
+    a.play().catch(()=>playFallback("fanfare_big"));
+  }catch(e){playFallback("fanfare_big");}
 }
 function playCount(){playSound("drumroll");}
 function playDrum(){playSound("chime");}
@@ -375,12 +396,13 @@ function cNextStep(){
     S.cPhase="animating";
     S.cBlinkGroup=null; S.cBlink=null;
     S.cDynBanner="🥁 우승팀은...?!"; S.cDynBanner2=""; render();
-    // 1등 바만 최종 점수로 치솟기 (2등은 아직 cRevealed에 추가 안 함)
+    // drumroll_final이 재생 중이면 끝난 후, 아니면 바로 치솟기
     const from={...S.cScores};
     const to={...S.cScores};
     winner.forEach(id=>{to[id]=S.cTargets[id]||0;});
-    playSound("drumroll");
-    cAnimate(from,to,2500,()=>{
+    const _startRise=()=>{
+      playFanfareBig();
+      cAnimate(from,to,2500,()=>{
       // 1등+2등 동시에 공개
       S.cRevealed=[...S.cRevealed,...winner,...second];
       S.cGroupStep=(S._dramaticGIdx||0)+2;
@@ -390,10 +412,16 @@ function cNextStep(){
       S.cDynBanner2=`🥈 준우승 ${secName}팀`;
       S.cPhase="done";
       S.cBlinkGroup=winner; S.cBlink=winner[0];
-      playSound("fanfare_big");
       render(); setTimeout(spawnConfetti,50);
       setTimeout(()=>{S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";render();},8000);
-    });
+    });};
+    // drumroll_final이 아직 재생 중이면 끝난 후 실행, 아니면 바로
+    const _dr=_ac["drumroll_final"];
+    if(_dr&&!_dr.paused&&_dr.currentTime>0){
+      _dr.onended=()=>{_dr.onended=null;_startRise();};
+    } else {
+      _startRise();
+    }
     return;
   }
   if(S.cPhase==="animating"||S.cPhase==="done") return;
@@ -435,7 +463,7 @@ function cNextStep(){
       S.cPhase="done";
       S.cBlinkGroup=winners;
       S.cBlink=winners[0];
-      playSound("fanfare_big"); render(); setTimeout(spawnConfetti,50);
+      playFanfareBig(); render(); setTimeout(spawnConfetti,50);
       setTimeout(()=>{
         S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";
         render();
@@ -496,7 +524,7 @@ function _revealGroup(groups, gIdx, noDecrease){
       S.cDynBanner2="";
       S.cPhase="done";
       S.cBlinkGroup=group; S.cBlink=group[0];
-      playSound("fanfare_big");
+      playFanfareBig();
       render(); setTimeout(spawnConfetti,50);
       setTimeout(()=>{S.cDynBanner2="서울영동교회 어와나클럽원 모두 최고! 🎉\n우리는 하나님께 인정받는 부끄러울 것이 없는 일꾼!";render()},10000);
     } else {
@@ -517,7 +545,7 @@ function _revealGroup(groups, gIdx, noDecrease){
       if(isDramatic){
         // 2등 바 올라온 상태에서 1등+2등 동시 깜빡 + "과연 우승팀은?"
         S.cPhase="dramatic"; // 새 페이즈: 클릭 대기
-        playSound("chime");
+        playSound("drumroll_final");
         const winnerName=TEAMS.find(t=>t.id===nextGroup[0])?.name;
         const secondName=names;
         S.cDynBanner=`🥁 과연 우승팀은?!`;
@@ -2232,15 +2260,26 @@ function buildSchedule(){
     // 아랫줄: 출석 / 단복 버튼 — 이름 시작점(도트8px+gap7px=15px) 정렬
     const NAME_OFFSET=15; // dot(8) + gap(7)
     const HB_OFFSET=NAME_OFFSET+60+7; // +minWidth(60)+gap(7) = 핸드북명 시작점
+    const _role=S.role;
+    const _canCheck=_role==="game";
+    const _isAdminCheck=_role==="admin";
+    const _showAdminAlert=()=>showToast("출석·단복 체크는 서기부 선생님께서 담당하고 계십니다 😊");
+
     const mkBigBtn=(label,active,color,onClick)=>{
       const el=D({flex:"1",height:"44px",borderRadius:"8px",
         display:"flex",alignItems:"center",justifyContent:"center",
         background:active?color+"18":"#F8FAFC",
         border:`1.5px solid ${active?color:"#E2E8F0"}`,
-        cursor:"pointer",userSelect:"none",
+        cursor:_canCheck?"pointer":"default",userSelect:"none",
         fontSize:"14px",fontWeight:active?"700":"400",
-        color:active?color:"#CBD5E1",transition:"all 0.15s"},label);
-      el.addEventListener("click",async e=>{e.stopPropagation();await onClick();});
+        color:active?color:"#CBD5E1",transition:"all 0.15s",
+        opacity:_canCheck?"1":"0.6"},label);
+      el.addEventListener("click",async e=>{
+        e.stopPropagation();
+        if(_isAdminCheck){_showAdminAlert();}
+        if(!_canCheck&&!_isAdminCheck) return;
+        await onClick();
+      });
       return el;
     };
     const botRow=D({display:"flex",gap:"6px",paddingLeft:HB_OFFSET+"px"});
@@ -2248,7 +2287,11 @@ function buildSchedule(){
     botRow.appendChild(mkBigBtn("단복",uni,"#2563EB",()=>setSD(s.id,{uniform:!uni})));
     cell.appendChild(botRow);
 
-    cell.addEventListener("click",async()=>setSD(s.id,{attendance:!att,uniform:!att}));
+    cell.addEventListener("click",async()=>{
+      if(_isAdminCheck){_showAdminAlert();}
+      if(!_canCheck&&!_isAdminCheck) return;
+      setSD(s.id,{attendance:!att,uniform:!att});
+    });
     return cell;
   }
 
@@ -2285,11 +2328,18 @@ function buildSchedule(){
       sortToggle.appendChild(btn);
     });
 
+    const _canCheckBulk=S.role==="game";
+    const _isAdminBulk=S.role==="admin";
+    const _alertBulk=()=>showToast("출석·단복 체크는 서기부 선생님께서 담당하고 계십니다 😊");
+
     const attBtn=!locked?B({
       fontSize:"11px",fontWeight:"700",padding:"3px 9px",borderRadius:"20px",
-      cursor:"pointer",border:"none",flexShrink:"0",
+      cursor:_canCheckBulk?"pointer":"default",border:"none",flexShrink:"0",
+      opacity:_canCheckBulk?"1":"0.5",
       background:allAtt?"#16A34A":"#F1F5F9",color:allAtt?"#fff":"#64748B"},
       async()=>{
+        if(_isAdminBulk){_alertBulk();}
+        if(!_canCheckBulk&&!_isAdminBulk) return;
         const next=!allAtt;
         const wdCopy=JSON.parse(JSON.stringify(getWD()));
         stuList.forEach(s=>{wdCopy.students[s.id]={...(wdCopy.students[s.id]||{attendance:false,uniform:false,signs:0}),attendance:next};});
@@ -2298,9 +2348,12 @@ function buildSchedule(){
 
     const uniBtn=!locked?B({
       fontSize:"11px",fontWeight:"700",padding:"3px 9px",borderRadius:"20px",
-      cursor:"pointer",border:"none",flexShrink:"0",
+      cursor:_canCheckBulk?"pointer":"default",border:"none",flexShrink:"0",
+      opacity:_canCheckBulk?"1":"0.5",
       background:allUni?"#2563EB":"#F1F5F9",color:allUni?"#fff":"#64748B"},
       async()=>{
+        if(_isAdminBulk){_alertBulk();}
+        if(!_canCheckBulk&&!_isAdminBulk) return;
         const next=!allUni;
         const wdCopy=JSON.parse(JSON.stringify(getWD()));
         stuList.forEach(s=>{wdCopy.students[s.id]={...(wdCopy.students[s.id]||{attendance:false,uniform:false,signs:0}),uniform:next};});
