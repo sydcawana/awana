@@ -2909,7 +2909,7 @@ function buildAwardsTab(){
         );
         hdr.addEventListener("mouseenter",()=>hdr.style.background="#F1F5F9");
         hdr.addEventListener("mouseleave",()=>hdr.style.background="");
-        const _isAdminForPopup=S.role==="admin";
+        const _isAdminForPopup=S.role==="admin"||S.role==="game";
         hdr.addEventListener("click",()=>{
           // 기존 팝업 제거
           const prev=document.getElementById("_memberPopup");if(prev)prev.remove();
