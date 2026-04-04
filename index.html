@@ -2693,37 +2693,6 @@ function buildConfigSet(){
     },"초기화")
   ));
 
-  // 말씀 PDF URL 설정
-  const pdfAcc=(()=>{
-    const isOpen=co["pdf"]||false;
-    const hdr=D({display:"flex",justifyContent:"space-between",alignItems:"center",
-      padding:"12px 14px",cursor:"pointer",userSelect:"none",
-      background:isOpen?"#F8FAFC":"#fff"},
-      SP({fontWeight:"600",fontSize:"13px",color:"#1E293B"},"📄 말씀 PDF 링크 설정"),
-      SP({fontSize:"12px",color:"#94A3B8"},isOpen?"▲":"▼")
-    );
-    hdr.addEventListener("click",()=>{co["pdf"]=!co["pdf"];render();});
-    const wrap=D({border:"1px solid #E2E8F0",borderRadius:"10px",marginBottom:"8px",overflow:"hidden"},hdr);
-    if(isOpen){
-      const body=D({padding:"14px",borderTop:"1px solid #F1F5F9",display:"flex",flexDirection:"column",gap:"8px"});
-      const urlInp=inp("PDF URL 입력 (Google Drive, Dropbox 등)",S._slidesUrl||"",v=>{S._slidesUrl=v;});
-      const saveBtn=B({background:"#1E293B",color:"#fff",border:"none",borderRadius:"8px",
-        padding:"10px",fontWeight:"700",fontSize:"13px",cursor:"pointer"},
-        async()=>{
-          S._pdfDoc=null; S._pdfPage=1; S._pdfTotal=0;
-          await setDoc(doc(db,"awana","remote"),{cmd:"pdf_url",url:S._slidesUrl,ts:Date.now()});
-          showToast("PDF 링크 저장됐어요 ✔");
-        },"저장 및 적용");
-      const hint=SP({fontSize:"11px",color:"#94A3B8",whiteSpace:"pre-line"},
-        "💡 Google Drive: 공유 → 링크 복사 후 끝에 /view를 /preview로 변경\nDropbox: ?dl=0을 ?raw=1로 변경");
-      body.appendChild(urlInp);
-      body.appendChild(hint);
-      body.appendChild(saveBtn);
-      wrap.appendChild(body);
-    }
-    return wrap;
-  })();
-
   // 로그 버튼들
   const batchLogBtn=B({width:"100%",background:"#EFF6FF",border:"1px solid #BFDBFE",
     borderRadius:"10px",padding:"11px",color:"#2563EB",fontWeight:"700",
@@ -2740,7 +2709,7 @@ function buildConfigSet(){
     fontSize:"13px",cursor:"pointer",marginTop:"6px"},
     ()=>downloadLogs(),"📥 활동 로그 다운로드 (CSV)");
 
-  return D({},scoreAcc,attAcc,pwAcc,pdfAcc,resetAcc,batchLogBtn,logBtn);
+  return D({},scoreAcc,attAcc,pwAcc,resetAcc,batchLogBtn,logBtn);
 }
 
 function buildStatsView(){
