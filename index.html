@@ -199,13 +199,37 @@ async function saveStuMilestone(sid, patch){
   S.students = S.students.map(s => s.id===sid ? {...s,...patch} : s);
   await saveStudents();
 }
-const saveWeek = w => { const d=S.wdata[w]; if(d) fbSave(`week_${w}`,d); };
+const saveWeek = w => {
+  const d=S.wdata[w];
+  if(d){
+    const ts=Date.now();
+    S._weekSavedAt=S._weekSavedAt||{};
+    S._weekSavedAt[w]=ts;
+    fbSave(`week_${w}`,{...d,_savedAt:ts});
+  }
+};
 
 let wUnsub=null;
 function listenWeek(w){
   if(wUnsub) wUnsub();
   wUnsub=onSnapshot(doc(db,"awana",`week_${w}`),snap=>{
-    S.wdata[w]=snap.exists()?snap.data():initWD();
+    if(!snap.exists()){
+      // Firebase에 문서 없을 때 - 기존 데이터 있으면 유지, 없을 때만 초기화
+      if(!S.wdata[w]) S.wdata[w]=initWD();
+      render(); return;
+    }
+    const incoming=snap.data();
+    const existing=S.wdata[w];
+    // 기존에 게임 데이터가 있는데 새 데이터에 없으면 게임 데이터 유지
+    if(existing?.games && !incoming?.games?.sparks?.rounds?.length && !incoming?.games?.tnt?.rounds?.length){
+      const spkRounds=existing.games?.sparks?.rounds||[];
+      const tntRounds=existing.games?.tnt?.rounds||[];
+      if(spkRounds.length>0||tntRounds.length>0){
+        incoming.games=existing.games;
+        incoming.gameFinalized=existing.gameFinalized||incoming.gameFinalized;
+      }
+    }
+    S.wdata[w]=incoming;
     render();
   });
 }
