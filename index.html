@@ -23,7 +23,7 @@ select,input,button,textarea{font-family:inherit;}
 <div id="root"></div>
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,doc,setDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getFirestore,doc,setDoc,updateDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = initializeApp({
   apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
@@ -162,7 +162,8 @@ async function addLog(sid, event, detail){
     const logs=S._logs||{};
     logs[logId]=logDoc;
     S._logs=logs;
-    await setDoc(doc(db,"awana","logs"),logs);
+    try{ await updateDoc(doc(db,"awana","logs"),{[logId]:logDoc}); }
+    catch(e){ if(e.code==="not-found") await setDoc(doc(db,"awana","logs"),logs); else throw e; }
   }catch(e){console.warn("로그 저장 실패",e);}
 }
 
@@ -176,7 +177,7 @@ async function saveAwards(sid, awards){
   const prev=(wd.students[sid]?.awards)||{};
   wd.students[sid] = {...(wd.students[sid]||{attendance:false,uniform:false,signs:0}), awards};
   S.wdata[S.week] = wd;
-  await saveWeek(S.week);
+  await updateStudentWeek(S.week,sid,{awards});
   // 로그: 변경된 시상 항목 기록
   const details=[];
   if(awards.enroll&&!prev.enroll) details.push("입단");
@@ -193,7 +194,7 @@ async function saveMemo(sid, memo){
   const wd = JSON.parse(JSON.stringify(getWD()));
   wd.students[sid] = {...(wd.students[sid]||{attendance:false,uniform:false,signs:0}), memo};
   S.wdata[S.week] = wd;
-  await saveWeek(S.week);
+  await updateStudentWeek(S.week,sid,{memo});
 }
 async function saveStuMilestone(sid, patch){
   S.students = S.students.map(s => s.id===sid ? {...s,...patch} : s);
@@ -208,6 +209,56 @@ const saveWeek = w => {
     fbSave(`week_${w}`,{...d,_savedAt:ts});
   }
 };
+
+// ── Local Patch Layer: 내가 저장한 필드는 onSnapshot이 덮어쓰지 못하게 보호 ──
+S._lp={};
+function _lpSet(docKey,flat){
+  if(!S._lp[docKey]) S._lp[docKey]={};
+  const ts=Date.now();
+  Object.entries(flat).forEach(([k,v])=>{ if(k==="_savedAt") return; S._lp[docKey][k]={value:v,ts}; });
+}
+function _lpApply(docKey,incoming){
+  const patches=S._lp[docKey];
+  if(!patches||!Object.keys(patches).length) return incoming;
+  const merged=JSON.parse(JSON.stringify(incoming));
+  Object.entries(patches).forEach(([dotPath,{value}])=>{
+    const keys=dotPath.split(".");
+    let cur=merged;
+    for(let i=0;i<keys.length-1;i++){ if(!cur[keys[i]]||typeof cur[keys[i]]!=="object") cur[keys[i]]={};  cur=cur[keys[i]]; }
+    cur[keys[keys.length-1]]=value;
+  });
+  return merged;
+}
+function _lpClean(docKey,incomingTs){
+  const patches=S._lp[docKey];
+  if(!patches) return;
+  Object.keys(patches).forEach(k=>{ if(incomingTs>=patches[k].ts) delete patches[k]; });
+}
+
+// 학생 단위 부분 업데이트 (동시 편집 충돌 방지)
+async function updateStudentWeek(w,sid,patch){
+  const docKey=`week_${w}`;
+  const ref=doc(db,"awana",docKey);
+  const flat={};
+  Object.entries(patch).forEach(([k,v])=>{ flat[`students.${sid}.${k}`]=v; });
+  flat["_savedAt"]=Date.now();
+  _lpSet(docKey,flat);
+  try{ await updateDoc(ref,flat); }
+  catch(e){
+    if(e.code==="not-found"){ const wd=S.wdata[w]||initWD(); wd.students[sid]={...(wd.students[sid]||{}),...patch}; await setDoc(ref,{...wd,_savedAt:flat["_savedAt"]}); }
+    else throw e;
+  }
+}
+
+// 주차 문서 특정 필드만 업데이트
+async function updateWeekField(w,flatPatch){
+  const docKey=`week_${w}`;
+  const ref=doc(db,"awana",docKey);
+  const payload={...flatPatch,"_savedAt":Date.now()};
+  _lpSet(docKey,payload);
+  try{ await updateDoc(ref,payload); }
+  catch(e){ if(e.code==="not-found") await saveWeek(w); else throw e; }
+}
 
 let wUnsub=null;
 function listenWeek(w){
@@ -229,6 +280,8 @@ function listenWeek(w){
         incoming.gameFinalized=existing.gameFinalized||incoming.gameFinalized;
       }
     }
+    _lpClean(`week_${w}`,incoming._savedAt||0);
+    incoming=_lpApply(`week_${w}`,incoming);
     S.wdata[w]=incoming;
     render();
   });
@@ -281,7 +334,7 @@ function startListeners(){
       else cNextStep();
     }
     else if(cmd==="ceremony_start"){
-      if(!S.ceremony&&!S.ceremonyReady){S.ceremonyReady=true;render();}
+      if(!S.ceremony&&!S.ceremonyReady){startCeremony();}
     }
     else if(cmd==="schedule_this"){S.scheduleScreen=true;render();}
     else if(cmd==="schedule_next"){S.scheduleScreen="next";render();}
@@ -349,7 +402,7 @@ async function setBonus(tid,val){
   wd.bonus[tid]=Math.max(0,val);
   S.wdata[S.week]=wd;
   render();
-  await saveWeek(S.week);
+  await updateWeekField(S.week,{[`bonus.${tid}`]:Math.max(0,val)});
 }
 function totalScore(tid){
   const hb=teamHb(tid);
@@ -366,24 +419,30 @@ async function setSD(sid,patch){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   wd.students[sid]={...(wd.students[sid]||{attendance:false,uniform:false,signs:0}),...patch};
-  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+  S.wdata[S.week]=wd; render();
+  await updateStudentWeek(S.week,sid,patch);
 }
 async function bulkCheck(hb,field,val){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   hbStu(hb).forEach(s=>{wd.students[s.id]={...(wd.students[s.id]||{attendance:false,uniform:false,signs:0}),[field]:val};});
-  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+  S.wdata[S.week]=wd; render();
+  const _bf={};
+  hbStu(hb).forEach(s=>{_bf[`students.${s.id}.${field}`]=val;});
+  await updateWeekField(S.week,_bf);
 }
 async function setGame(type,fn){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   wd.games[type]=fn(wd.games[type]||initGame(1));
-  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+  S.wdata[S.week]=wd; render();
+  await updateWeekField(S.week,{[`games.${type}`]:wd.games[type]});
 }
 async function setFinalized(val){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
-  wd.gameFinalized=val; S.wdata[S.week]=wd; render(); await saveWeek(S.week);
+  wd.gameFinalized=val; S.wdata[S.week]=wd; render();
+  await updateWeekField(S.week,{gameFinalized:val});
 }
 async function saveWeekLog(w){
   // 해당 주차 전체 출석/암송/시상 로그를 logs_w{n}에 저장
@@ -433,6 +492,7 @@ async function toggleLock(){
 }
 async function resetWeekData(w){
   const fresh=initWD();
+  if(S._lp) S._lp[`week_${w}`]={};
   await fbSave(`week_${w}`,fresh);
   S.wdata[w]=fresh;
   if(S.week===w) listenWeek(w);
@@ -1463,7 +1523,7 @@ function buildResult(sorted){
     wd.gameFinalized?B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"14px"},async()=>{
         const snap=await getDoc(doc(db,"awana","week_"+S.week));
         if(snap.exists()) S.wdata[S.week]=snap.data();
-        S.ceremonyReady=true; render();
+        startCeremony();
       },"🏆 시상식 공개"):null,
     D({fontWeight:"600",fontSize:"15px",marginBottom:"12px"},"최종 결과"),
     ...sorted.map((t,i)=>{
@@ -1600,7 +1660,7 @@ function buildAwardPopup(){
     );
 
     // 입단 카드 (행글라이더만)
-    const showEnroll=true; // 모든 스팍스 핸드북에서 입단 표시
+    const showEnroll=hb==="행글라이더";
     const hadEnroll=!!past.enroll, hasEnroll=!!cur.enroll;
     const bc0=HB_BADGE_COLOR[hb]||{color:"#22C55E",light:"#F0FDF4",border:"#86EFAC"};
     const enrollCard=(()=>{
@@ -1708,7 +1768,7 @@ function buildAwardPopup(){
     );
 
     // 입단 카드 (어드벤처1, 챌린지1만)
-    const showTntEnroll=true; // 모든 티앤티 핸드북에서 입단 표시
+    const showTntEnroll=["어드벤처1","챌린지1"].includes(hb);
     const hadTntEnroll=!!past.enroll, hasTntEnroll=!!cur.enroll;
     const enrollCardTnt=(()=>{
       const bg=hadTntEnroll?tntLight:hasTntEnroll?tntLight:"#F8FAFC";
@@ -1753,12 +1813,12 @@ function buildAwardPopup(){
 
   const summary=[];
   if(isSpks){
-    if(cur.enroll) summary.push("🚀 스팍스 입단");
+    if(cur.enroll) summary.push("🚀스팍스 입단");
     if(cur.badge) summary.push("🏅"+HB_BADGE_LABEL[hb]);
     if(cur.wing)  summary.push("🪽 "+HB_WING_LABEL[hb]);
     if(cur.gems)  GEM_SEQ.slice(past.gems, past.gems+cur.gems).forEach(tid=>summary.push(tid==="red"?"🔴 빨강 보석":"🟢 초록 보석"));
   } else {
-    if(cur.enroll) summary.push("🚀 티앤티 입단");
+    if(cur.enroll) summary.push("🚀티앤티 입단");
     if(cur.award) summary.push("🏆"+hb+"수상대");
     (cur.seals||[]).forEach(s=>summary.push("●"+s));
   }
@@ -2512,47 +2572,21 @@ function buildStMgr(){
             D({display:"flex",gap:"6px"},eh,
               B({background:"#22C55E",color:"#fff",border:"none",borderRadius:"6px",padding:"6px 12px",cursor:"pointer",fontWeight:"700",fontSize:"13px"},
                 async()=>{
-                  const oldHb=s.handbook;
-                  const newHb=S.editSt.handbook;
-                  const hbChanged=oldHb!==newHb;
-                  S.students=S.students.map(x=>x.id===s.id?{...x,...S.editSt}:x);
-                  S.editSt=null;
-                  await saveStudents();
-                  if(hbChanged){
-                    // 핸드북 변경 시 씰/시상 초기화
-                    const isSparkNew=["행글라이더","윙러너","스카이스토머"].includes(newHb);
-                    const isTntNew=["어드벤처1","어드벤처2","챌린지1","챌린지2"].includes(newHb);
-                    const isSparkOld=["행글라이더","윙러너","스카이스토머"].includes(oldHb);
-                    // 모든 주차의 awards 초기화
-                    Object.keys(S.wdata).forEach(w=>{
-                      const wd=S.wdata[w];
-                      if(!wd?.students?.[s.id]?.awards) return;
-                      const aw=wd.students[s.id].awards;
-                      // 씰 초기화
-                      aw.seals=[];
-                      // 스팍스: 승급(badge), 날개(wing) 초기화
-                      if(isSparkNew){aw.badge=false;aw.wing=false;}
-                      // 티앤티: 수상대(award) 초기화
-                      if(isTntNew){aw.award=false;}
-                    });
-                    // 입단 처리: 클럽 그룹 달라지면 입단 리셋
-                    const oldIsSpk=["행글라이더","윙러너","스카이스토머"].includes(oldHb);
-                    if(isSparkNew!==oldIsSpk){
-                      // 클럽 바뀜 → 입단 초기화
-                      await saveStuMilestone(s.id,{enroll:false});
-                      Object.keys(S.wdata).forEach(w=>{
-                        const wd=S.wdata[w];
-                        if(wd?.students?.[s.id]?.awards) wd.students[s.id].awards.enroll=false;
-                      });
-                    }
-                    // 변경된 주차들 저장
-                    for(const w of Object.keys(S.wdata)){
-                      if(S.wdata[w]?.students?.[s.id]) await fbSave(`week_${w}`,S.wdata[w]);
-                    }
-                    showToast(`핸드북 변경 완료. 씰/시상이 초기화됐어요.`);
+              const prev=s.handbook;
+              const next=S.editSt.handbook;
+              S.students=S.students.map(x=>x.id===s.id?{...x,...S.editSt}:x);
+              if(prev!==next){
+                const isSpks=["행글라이더","윙러너","스카이스토머"].includes(next);
+                for(const w of Object.keys(S.wdata)){
+                  const wd=S.wdata[w];
+                  if(wd?.students?.[s.id]){
+                    const emptyAwards=isSpks?{seals:[],badge:false,wing:false,enroll:false,gems:0}:{seals:[],award:false,enroll:false};
+                    wd.students[s.id].awards=emptyAwards;
+                    await updateStudentWeek(Number(w), s.id, {awards:emptyAwards});
                   }
-                  render();
-                },"저장"),
+                }
+              }
+              S.editSt=null;await saveStudents();render();},"저장"),
               B({background:"#F1F5F9",border:"none",borderRadius:"6px",padding:"6px 12px",cursor:"pointer",fontSize:"13px"},
                 ()=>{S.editSt=null;render();},"취소")
             )
@@ -3397,7 +3431,7 @@ function buildAwardsTab(){
       items.push({label:"출석상",color:"#7C3AED",bg:"#F5F3FF",border:"#DDD6FE"});
     if(getAwardGroup(hb)==="sparks"){
       const hbc=HB_BADGE_COLOR[hb]||{color:"#22C55E",light:"#F0FDF4",border:"#86EFAC"};
-      if(a.enroll) items.push({label:"스팍스 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
+      if(a.enroll) items.push({label:hb+" 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.badge) items.push({label:HB_BADGE_LABEL[hb]||"승급표식",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.wing)  items.push({label:HB_WING_LABEL[hb]||"날개핀",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.gems){
@@ -3409,7 +3443,7 @@ function buildAwardsTab(){
       }
     } else {
       const hbc=HB_TNT_COLOR[hb]||{color:"#64748B",light:"#F8FAFC",border:"#E2E8F0"};
-      if(a.enroll) items.push({label:"티앤티 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
+      if(a.enroll) items.push({label:hb+" 입단",color:hbc.color,bg:hbc.light,border:hbc.border});
       if(a.award) items.push({label:hb+" 수상대",color:hbc.color,bg:hbc.light,border:hbc.border});
       (a.seals||[]).sort((x,y)=>parseInt(x)-parseInt(y))
         .forEach(s=>items.push({label:s,color:hbc.color,bg:hbc.light,border:hbc.border}));
@@ -3656,7 +3690,7 @@ function buildAwardsTab(){
         cursor:"pointer",marginBottom:"12px"},async()=>{
         const snap=await getDoc(doc(db,"awana","week_"+S.week));
         if(snap.exists()) S.wdata[S.week]=snap.data();
-        S.ceremonyReady=true; render();
+        startCeremony();
       },"🏆 시상식 공개")
       :null;
 
