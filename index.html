@@ -1124,7 +1124,9 @@ function buildHbDetail(hb){
     const d=getSD(s.id),t=getTeam(s.team);
     const isTnt=getAwardGroup(hb)==="tnt";
     const aw=d.awards||{};
-    const hasAward=!!(aw.enroll||aw.badge||aw.wing||aw.award||(aw.gems>0)||(aw.seals&&aw.seals.length>0));
+    const _attInfo=getAttAwardInfo(S.week);
+    const _hasAttAward=!!(_attInfo&&calcAttAward(s.id,_attInfo.week,_attInfo.allow));
+    const hasAward=!!(_hasAttAward||aw.enroll||aw.badge||aw.wing||aw.award||(aw.gems>0)||(aw.seals&&aw.seals.length>0));
     const isEditing=S.editingSigns===s.id;
 
     function mkBtn(label,onClick,isRed){
@@ -3363,7 +3365,7 @@ function buildAwardsTab(){
 
   // ── 공통 helpers ──
   function awardItems(sid,hb){
-    const a=wd?.students?.[sid]?.awards; if(!a) return [];
+    const a=wd?.students?.[sid]?.awards||{};  // awards 없어도 출석상은 계산
     const items=[];
     const attInfo=getAttAwardInfo(S.week);
     if(attInfo && calcAttAward(sid,attInfo.week,attInfo.allow))
