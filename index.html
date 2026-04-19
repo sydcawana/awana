@@ -23,7 +23,7 @@ select,input,button,textarea{font-family:inherit;}
 <div id="root"></div>
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,doc,setDoc,updateDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getFirestore,doc,setDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = initializeApp({
   apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
@@ -162,8 +162,7 @@ async function addLog(sid, event, detail){
     const logs=S._logs||{};
     logs[logId]=logDoc;
     S._logs=logs;
-    try{ await updateDoc(doc(db,"awana","logs"),{[logId]:logDoc}); }
-    catch(e){ if(e.code==="not-found") await setDoc(doc(db,"awana","logs"),logs); else throw e; }
+    await setDoc(doc(db,"awana","logs"),logs);
   }catch(e){console.warn("로그 저장 실패",e);}
 }
 
@@ -177,7 +176,7 @@ async function saveAwards(sid, awards){
   const prev=(wd.students[sid]?.awards)||{};
   wd.students[sid] = {...(wd.students[sid]||{attendance:false,uniform:false,signs:0}), awards};
   S.wdata[S.week] = wd;
-  await updateStudentWeek(S.week,sid,{awards});
+  await saveWeek(S.week);
   // 로그: 변경된 시상 항목 기록
   const details=[];
   if(awards.enroll&&!prev.enroll) details.push("입단");
@@ -194,7 +193,7 @@ async function saveMemo(sid, memo){
   const wd = JSON.parse(JSON.stringify(getWD()));
   wd.students[sid] = {...(wd.students[sid]||{attendance:false,uniform:false,signs:0}), memo};
   S.wdata[S.week] = wd;
-  await updateStudentWeek(S.week,sid,{memo});
+  await saveWeek(S.week);
 }
 async function saveStuMilestone(sid, patch){
   S.students = S.students.map(s => s.id===sid ? {...s,...patch} : s);
@@ -206,59 +205,12 @@ const saveWeek = w => {
     const ts=Date.now();
     S._weekSavedAt=S._weekSavedAt||{};
     S._weekSavedAt[w]=ts;
+    // 저장 후 1초간 이 주차의 onSnapshot 업데이트 무시 (내 저장이 메아리로 돌아오는 것 방지)
+    S._weekSaving=S._weekSaving||{};
+    S._weekSaving[w]=ts;
     fbSave(`week_${w}`,{...d,_savedAt:ts});
   }
 };
-
-// ── Local Patch Layer: 내가 저장한 필드는 onSnapshot이 덮어쓰지 못하게 보호 ──
-S._lp={};
-function _lpSet(docKey,flat){
-  if(!S._lp[docKey]) S._lp[docKey]={};
-  const ts=Date.now();
-  Object.entries(flat).forEach(([k,v])=>{ if(k==="_savedAt") return; S._lp[docKey][k]={value:v,ts}; });
-}
-function _lpApply(docKey,incoming){
-  const patches=S._lp[docKey];
-  if(!patches||!Object.keys(patches).length) return incoming;
-  const merged=JSON.parse(JSON.stringify(incoming));
-  Object.entries(patches).forEach(([dotPath,{value}])=>{
-    const keys=dotPath.split(".");
-    let cur=merged;
-    for(let i=0;i<keys.length-1;i++){ if(!cur[keys[i]]||typeof cur[keys[i]]!=="object") cur[keys[i]]={};  cur=cur[keys[i]]; }
-    cur[keys[keys.length-1]]=value;
-  });
-  return merged;
-}
-function _lpClean(docKey,incomingTs){
-  const patches=S._lp[docKey];
-  if(!patches) return;
-  Object.keys(patches).forEach(k=>{ if(incomingTs>=patches[k].ts) delete patches[k]; });
-}
-
-// 학생 단위 부분 업데이트 (동시 편집 충돌 방지)
-async function updateStudentWeek(w,sid,patch){
-  const docKey=`week_${w}`;
-  const ref=doc(db,"awana",docKey);
-  const flat={};
-  Object.entries(patch).forEach(([k,v])=>{ flat[`students.${sid}.${k}`]=v; });
-  flat["_savedAt"]=Date.now();
-  _lpSet(docKey,flat);
-  try{ await updateDoc(ref,flat); }
-  catch(e){
-    if(e.code==="not-found"){ const wd=S.wdata[w]||initWD(); wd.students[sid]={...(wd.students[sid]||{}),...patch}; await setDoc(ref,{...wd,_savedAt:flat["_savedAt"]}); }
-    else throw e;
-  }
-}
-
-// 주차 문서 특정 필드만 업데이트
-async function updateWeekField(w,flatPatch){
-  const docKey=`week_${w}`;
-  const ref=doc(db,"awana",docKey);
-  const payload={...flatPatch,"_savedAt":Date.now()};
-  _lpSet(docKey,payload);
-  try{ await updateDoc(ref,payload); }
-  catch(e){ if(e.code==="not-found") await saveWeek(w); else throw e; }
-}
 
 let wUnsub=null;
 function listenWeek(w){
@@ -280,8 +232,21 @@ function listenWeek(w){
         incoming.gameFinalized=existing.gameFinalized||incoming.gameFinalized;
       }
     }
-    _lpClean(`week_${w}`,incoming._savedAt||0);
-    incoming=_lpApply(`week_${w}`,incoming);
+    // 내가 저장한 직후 돌아온 snapshot이면 무시 (메아리 방지)
+    const savedAt=S._weekSavedAt?.[w]||0;
+    const incomingAt=incoming._savedAt||0;
+    if(incomingAt>0 && incomingAt===savedAt){
+      // 내가 저장한 snapshot → 메모리 최신 유지
+      S.wdata[w]=incoming;
+      render();
+      return;
+    }
+    // 다른 기기의 변경 → 현재 입력 중인 필드 보호
+    if(S._weekSaving?.[w] && Date.now()-S._weekSaving[w]<1500){
+      // 저장 후 1.5초 이내 → 내 데이터 우선 유지 (다른 기기 변경은 다음 snapshot에서 반영)
+      render();
+      return;
+    }
     S.wdata[w]=incoming;
     render();
   });
@@ -402,7 +367,7 @@ async function setBonus(tid,val){
   wd.bonus[tid]=Math.max(0,val);
   S.wdata[S.week]=wd;
   render();
-  await updateWeekField(S.week,{[`bonus.${tid}`]:Math.max(0,val)});
+  await saveWeek(S.week);
 }
 function totalScore(tid){
   const hb=teamHb(tid);
@@ -419,30 +384,24 @@ async function setSD(sid,patch){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   wd.students[sid]={...(wd.students[sid]||{attendance:false,uniform:false,signs:0}),...patch};
-  S.wdata[S.week]=wd; render();
-  await updateStudentWeek(S.week,sid,patch);
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
 }
 async function bulkCheck(hb,field,val){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   hbStu(hb).forEach(s=>{wd.students[s.id]={...(wd.students[s.id]||{attendance:false,uniform:false,signs:0}),[field]:val};});
-  S.wdata[S.week]=wd; render();
-  const _bf={};
-  hbStu(hb).forEach(s=>{_bf[`students.${s.id}.${field}`]=val;});
-  await updateWeekField(S.week,_bf);
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
 }
 async function setGame(type,fn){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   wd.games[type]=fn(wd.games[type]||initGame(1));
-  S.wdata[S.week]=wd; render();
-  await updateWeekField(S.week,{[`games.${type}`]:wd.games[type]});
+  S.wdata[S.week]=wd; render(); await saveWeek(S.week);
 }
 async function setFinalized(val){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
-  wd.gameFinalized=val; S.wdata[S.week]=wd; render();
-  await updateWeekField(S.week,{gameFinalized:val});
+  wd.gameFinalized=val; S.wdata[S.week]=wd; render(); await saveWeek(S.week);
 }
 async function saveWeekLog(w){
   // 해당 주차 전체 출석/암송/시상 로그를 logs_w{n}에 저장
@@ -492,7 +451,6 @@ async function toggleLock(){
 }
 async function resetWeekData(w){
   const fresh=initWD();
-  if(S._lp) S._lp[`week_${w}`]={};
   await fbSave(`week_${w}`,fresh);
   S.wdata[w]=fresh;
   if(S.week===w) listenWeek(w);
@@ -2577,14 +2535,13 @@ function buildStMgr(){
               S.students=S.students.map(x=>x.id===s.id?{...x,...S.editSt}:x);
               if(prev!==next){
                 const isSpks=["행글라이더","윙러너","스카이스토머"].includes(next);
-                for(const w of Object.keys(S.wdata)){
+                Object.keys(S.wdata).forEach(w=>{
                   const wd=S.wdata[w];
                   if(wd?.students?.[s.id]){
-                    const emptyAwards=isSpks?{seals:[],badge:false,wing:false,enroll:false,gems:0}:{seals:[],award:false,enroll:false};
-                    wd.students[s.id].awards=emptyAwards;
-                    await updateStudentWeek(Number(w), s.id, {awards:emptyAwards});
+                    wd.students[s.id].awards=isSpks?{seals:[],badge:false,wing:false,enroll:false,gems:0}:{seals:[],award:false,enroll:false};
+                    saveWeek(Number(w));
                   }
-                }
+                });
               }
               S.editSt=null;await saveStudents();render();},"저장"),
               B({background:"#F1F5F9",border:"none",borderRadius:"6px",padding:"6px 12px",cursor:"pointer",fontSize:"13px"},
