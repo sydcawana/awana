@@ -81,19 +81,9 @@ function getAttAwardInfo(week){
   if(!found) return null;
   return found;
 }
-function isVacation(w){ return S.vacationWeeks.includes(w); }
-// 주차 인덱스 w의 실제 표시 주차 번호 (휴강 주차 제외 카운트)
-function weekDisplayNum(w){
-  if(w===0) return 0;
-  let num=0;
-  for(let i=1;i<=w;i++){ if(!isVacation(i)) num++; }
-  return num;
-}
-
 function calcAttAward(sid, awardWeek, allowedAbsences){
   let absences=0;
   for(let w=1;w<=awardWeek;w++){
-    if(isVacation(w)) continue; // 휴강 주차 제외
     const wd=S.wdata[w];
     const attended=wd?.students?.[sid]?.attendance;
     if(!attended) absences++;
@@ -133,7 +123,6 @@ const S = {
   students:[],
   wdata:{},
   closedWeeks:Array.from({length:15},(_,i)=>i+1),
-  vacationWeeks:[],
   ceremony:false, ceremonyReady:false, cScores:{red:0,yellow:0,green:0,blue:0}, cGameScores:{red:0,yellow:0,green:0,blue:0}, cRevealed:[], cBanner:"", _weekFocused:false, loaded:false,
   awardPopup:null, showStudents:false,
   hbTab:"sparks", awardsTab:"sparks", awardsOpenTeam:null, awardsSelTeam:"red", awardsSelHb:null, schedule:{}, configOpen:{score:false,att:false,pw:false,reset:false},
@@ -148,7 +137,7 @@ const S = {
 // ════════════════════════════════════
 const fbSave = (id,data) => setDoc(doc(db,"awana",id),data);
 const saveStudents = () => fbSave("students",{list:S.students});
-const saveSettings = () => fbSave("settings",{...S.settings,passwords:S.passwords,closedWeeks:S.closedWeeks,vacationWeeks:S.vacationWeeks});
+const saveSettings = () => fbSave("settings",{...S.settings,passwords:S.passwords,closedWeeks:S.closedWeeks});
 
 // ── 로그 기록 ──
 async function addLog(sid, event, detail){
@@ -297,14 +286,11 @@ function startListeners(){
       S.settingsInput={...S.settings};
       if(d.passwords) S.passwords=d.passwords;
       S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
-      S.vacationWeeks=d.vacationWeeks||[];
-      // URL 파라미터 자동 로그인 체크
       if(!S.role){
         const params=new URLSearchParams(window.location.search);
-        const mode=params.get("mode");
-        const key=params.get("key");
-        if(mode==="display" && key && key===S.passwords.displayKey){
-          S.role="admin"; S._isDisplay=true; startListeners();
+        const mode=params.get("mode"),key=params.get("key");
+        if(mode==="display"&&key&&key===S.passwords.displayKey){
+          S.role="admin";S._isDisplay=true;startListeners();
         }
       }
     }
@@ -347,14 +333,9 @@ function startListeners(){
     else if(cmd==="slides_prev"){if(S._pdfPage>1){S._pdfPage--;renderPdfPage();}}
     else if(cmd==="pdf_url"){S._slidesUrl=d.url||"";S._pdfDoc=null;S._pdfPage=1;S._pdfTotal=0;}
     else if(cmd==="bonus"){
+      // 보너스 점수: {cmd:"bonus", team:"red", val:50}
       const tid=d.team, val=d.val||0;
       if(tid) setBonus(tid,val);
-    }
-    else if(cmd==="sound"){
-      // 리모컨에서 직접 소리 명령
-      const sk=d.soundKey||"";
-      if(sk==="fanfare_big") playFanfareBig();
-      else if(sk) playSound(sk);
     }
   });
 }
@@ -548,7 +529,8 @@ function playSound(key){
 }
 function playFallback(key){
   try{
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const ctx=ac(); // 기존 actx 재사용 (언락된 컨텍스트)
+    if(ctx.state==="suspended") ctx.resume();
     if(key==="drumroll"){for(let i=0;i<30;i++){const o=ctx.createOscillator(),g=ctx.createGain();o.type="sawtooth";o.frequency.value=80+Math.random()*40;const t=ctx.currentTime+i*0.05;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.15,t+0.02);g.gain.linearRampToValueAtTime(0,t+0.04);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.05);}}
     else if(key==="chime"){[523,659,784].forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=f;const t=ctx.currentTime+i*0.12;g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.4);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.4);});}
     else if(key==="fanfare"){[440,523,659,523].forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type="square";o.frequency.value=f;const t=ctx.currentTime+i*0.15;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.2,t+0.02);g.gain.linearRampToValueAtTime(0,t+0.3);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.35);});}
@@ -556,14 +538,19 @@ function playFallback(key){
   }catch(e){}
 }
 function playFanfareBig(){
-  // fanfare_big2만 재생
   stopAllSounds();
   try{
     if(!_ac["fanfare_big2"]) _ac["fanfare_big2"]=new Audio(SOUNDS["fanfare_big2"]);
     const b=_ac["fanfare_big2"];
-    b.currentTime=0;
-    b.onended=null;
-    b.play().catch(()=>playFallback("fanfare_big"));
+    b.currentTime=0; b.onended=null;
+    b.play().catch(()=>{
+      try{
+        if(!_ac["fanfare_big"]) _ac["fanfare_big"]=new Audio(SOUNDS["fanfare_big"]);
+        const a=_ac["fanfare_big"];
+        a.currentTime=0; a.onended=null;
+        a.play().catch(()=>playFallback("fanfare_big"));
+      }catch(e){playFallback("fanfare_big");}
+    });
   }catch(e){playFallback("fanfare_big");}
 }
 function playCount(){playSound("drumroll");}
@@ -897,7 +884,7 @@ function inp(ph,val,fn,style={},type="text"){
 }
 function sel(opts,val,fn,style={}){
   const s=document.createElement("select");Object.assign(s.style,style);
-  opts.forEach(([v,l,os,disabled])=>{const o=document.createElement("option");o.value=v;o.textContent=l;if(v===val)o.selected=true;if(os)Object.assign(o.style,os);if(disabled)o.disabled=true;s.appendChild(o);});
+  opts.forEach(([v,l,os])=>{const o=document.createElement("option");o.value=v;o.textContent=l;if(v===val)o.selected=true;if(os)Object.assign(o.style,os);s.appendChild(o);});
   s.addEventListener("change",()=>fn(s.value));return s;
 }
 
@@ -1024,20 +1011,15 @@ function buildApp(){
   const visWeeks=WEEKS;
   const safeWeeks=visWeeks.length?visWeeks:[S.week];
   if(!safeWeeks.includes(S.week)){S.week=safeWeeks[0];listenWeek(S.week);}
-  if(!S._weekFocused){const fo=WEEKS.find(w=>!S.closedWeeks.includes(w)&&!isVacation(w));if(fo!==undefined&&S.week!==fo){S.week=fo;listenWeek(fo);}S._weekFocused=true;}
-  const weekLabel=w=>{
-    if(isVacation(w)) return '🚫 '+WEEK_DATES[w]+'(휴강)';
-    const lk=S.closedWeeks.includes(w);
-    const num=weekDisplayNum(w);
-    return w===0?(lk?'🔒':'✅')+' 0주차 '+WEEK_DATES[0]:(lk?'🔒':'✅')+' '+num+'주차 '+WEEK_DATES[w];
-  };
+  if(!S._weekFocused){const fo=WEEKS.find(w=>!S.closedWeeks.includes(w));if(fo!==undefined&&S.week!==fo){S.week=fo;listenWeek(fo);}S._weekFocused=true;}
+  const weekLabel=w=>{const lk=S.closedWeeks.includes(w);return w===0?(lk?'🔒':'✅')+' 0주차 '+WEEK_DATES[0]:(lk?'🔒':'✅')+' '+w+'주차 '+WEEK_DATES[w];};
 
   const header=D({background:"#1E293B",color:"#fff",padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"},
     D({display:"flex",alignItems:"center",gap:"10px"},
       D({fontWeight:"800",fontSize:"15px",letterSpacing:"-0.3px"},"어쩜조아")
     ),
     D({display:"flex",gap:"6px",alignItems:"center"},
-      sel(safeWeeks.map(w=>{const lk=S.closedWeeks.includes(w);const vac=isVacation(w);return[String(w),weekLabel(w),vac?{color:"#F59E0B",background:"#1E293B",fontStyle:"italic"}:lk?{color:"#94A3B8",background:"#1E293B"}:{color:"#fff",fontWeight:"700",background:"#334155"},vac];}),String(S.week),v=>{const wv=Number(v);if(isVacation(wv))return;S.week=wv;S.selHb=null;listenWeek(S.week);render();},{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}),
+      sel(safeWeeks.map(w=>{const lk=S.closedWeeks.includes(w);return[String(w),weekLabel(w),lk?{color:"#94A3B8",background:"#1E293B"}:{color:"#fff",fontWeight:"700",background:"#334155"}];}),String(S.week),v=>{S.week=Number(v);S.selHb=null;listenWeek(S.week);render();},{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}),
       isAdmin?B({background:locked?"#F59E0B":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},toggleLock,locked?"🔒":"🔓"):null,
       isAdmin?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},()=>{S.showSettings=true;S.stTab="students";render();},"⚙️"):null,
       isAdmin?B({background:S._isDisplay?"#16A34A":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"15px",cursor:"pointer"},
@@ -1980,7 +1962,7 @@ function buildScheduleScreen(){
     D({fontSize:"clamp(18px,3vw,42px)",fontWeight:"900",color:"#1E293B",lineHeight:"1.2"},
       isNext?"다음 주 진행 안내":"예배 진행 순서"),
     D({fontSize:"clamp(11px,1.2vw,16px)",color:"#94A3B8",letterSpacing:"2px",fontWeight:"600"},
-      `${weekDisplayNum(targetWeek)}주차 · ${dateStr}`)
+      `${targetWeek}주차 · ${dateStr}`)
   ));
   cont.appendChild(headerRow);
 
@@ -2126,9 +2108,11 @@ async function renderPdfPage(){
 }
 function buildStandby(){
   if(!S._isDisplay){S._isDisplay=true;}
-  return D({position:"fixed",inset:"0",background:"#fff",
+  const unlocked=S._audioUnlocked;
+  const wrap=D({position:"fixed",inset:"0",background:"#fff",
     zIndex:"350",display:"flex",flexDirection:"column",
-    alignItems:"center",justifyContent:"center",gap:"clamp(16px,4vh,32px)"},
+    alignItems:"center",justifyContent:"center",gap:"clamp(16px,4vh,32px)",
+    cursor:unlocked?"default":"pointer"},
     (()=>{
       const img=document.createElement("img");
       img.src="https://raw.githubusercontent.com/sydcawana/awana/main/awana_logo.jpg";
@@ -2139,18 +2123,32 @@ function buildStandby(){
       SP({fontSize:"clamp(22px,4vw,36px)",fontWeight:"900",color:"#1E293B",display:"block",letterSpacing:"-0.5px"},"어쩜조아"),
       SP({fontSize:"clamp(13px,2vw,18px)",color:"#94A3B8",display:"block",marginTop:"6px"},"서울영동교회 어와나 클럽")
     ),
-    SP({fontSize:"clamp(12px,1.5vw,15px)",color:"#CBD5E1",fontWeight:"600"},"리모컨 대기 중...")
+    unlocked
+      ? SP({fontSize:"clamp(12px,1.5vw,15px)",color:"#CBD5E1",fontWeight:"600"},"리모컨 대기 중...")
+      : D({textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:"8px"},
+          D({background:"#3B82F6",borderRadius:"16px",padding:"12px 28px",
+            color:"#fff",fontWeight:"800",fontSize:"clamp(14px,2vw,18px)",
+            boxShadow:"0 4px 20px rgba(59,130,246,0.4)"},"🔊 화면을 탭하여 소리 켜기"),
+          SP({fontSize:"clamp(11px,1.2vw,13px)",color:"#CBD5E1"},"리모컨 대기 중...")
+        )
   );
+  if(!unlocked){
+    wrap.addEventListener("click",()=>{
+      unlockAudio();
+      S._audioUnlocked=true;
+      render();
+    },{once:true});
+  }
+  return wrap;
 }
 function unlockAudio(){
   try{if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();
     if(actx.state==="suspended") actx.resume();}catch(e){}
 }
-// 페이지 로드 시 자동 시도
 unlockAudio();
-// 첫 인터랙션(터치/클릭)에서도 언락
 ["touchstart","mousedown","keydown"].forEach(ev=>
   document.addEventListener(ev,()=>unlockAudio(),{once:true,passive:true}));
+
 function buildRemote(){
   function remBtn(label,color,bg,border,onClick){
     return B({width:"100%",background:bg,border:`1px solid ${border}`,borderRadius:"12px",
@@ -2310,7 +2308,6 @@ function buildCeremony(){
   const BAR_MIN_GAP=20;
   const BAR_MIN_H=30;
 
-  // 현재 표시 점수 기준 동적 baseline으로 막대 높이 계산 (3500~4500 같은 밀집 구간에서 차이 강조)
   const allScores=FIXED.map(tid=>S.cScores?.[tid]||0);
   const minSc=Math.min(...allScores);
   const maxSc=Math.max(...allScores);
@@ -2513,12 +2510,28 @@ function buildSettings(){
           color:S.stTab===id?"#1E293B":"#64748B",
           borderBottom:S.stTab===id?"2px solid #1E293B":"2px solid transparent",
           whiteSpace:"nowrap",marginBottom:"-2px"},
-          ()=>{S.stTab=id;render();},label))
+          ()=>{
+            if(id==="stats"){
+              // 모든 잠금 주차 데이터 로드 후 표시
+              S.stTab="stats_loading"; render();
+              const missing=S.closedWeeks.filter(w=>w>0&&!S.wdata[w]);
+              if(!missing.length){S.stTab="stats";render();return;}
+              Promise.all(missing.map(w=>
+                getDoc(doc(db,"awana",`week_${w}`)).then(snap=>{
+                  if(snap.exists()) S.wdata[w]=snap.data();
+                  else if(!S.wdata[w]) S.wdata[w]=initWD();
+                })
+              )).then(()=>{S.stTab="stats";render();});
+            } else {
+              S.stTab=id; render();
+            }
+          },label))
       ),
       D({padding:"16px 20px 32px"},
         S.stTab==="students"?buildStMgr():
         S.stTab==="schedule"?buildScheduleEditor():
         S.stTab==="stats"?buildStatsView():
+        S.stTab==="stats_loading"?D({padding:"20px",textAlign:"center",color:"#94A3B8"},"📊 데이터 로딩 중..."):
         buildConfigSet()
       )
     )
@@ -2771,8 +2784,8 @@ function buildConfigSet(){
       mkInp(key));
   }
   function mkWeekSel(key){
-    const opts=[[0,"없음"],...WEEKS.filter(w=>w>0).map(w=>[w,isVacation(w)?`🚫 ${WEEK_DATES[w]}(휴강)`:`${weekDisplayNum(w)}주차 (${WEEK_DATES[w]})`])];
-    return sel(opts.map(([v,l])=>[String(v),l,null,isVacation(Number(v))]),String(si[key]||0),v=>{S.settingsInput[key]=Number(v);render();},
+    const opts=[[0,"없음"],...WEEKS.filter(w=>w>0).map(w=>[w,`${w}주차 (${WEEK_DATES[w]})`])];
+    return sel(opts.map(([v,l])=>[String(v),l]),String(si[key]||0),v=>{S.settingsInput[key]=Number(v);render();},
       {width:"100%",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"7px 8px",fontSize:"12px",boxSizing:"border-box"});
   }
   function mkAllowSel(key){
@@ -2829,7 +2842,6 @@ function buildConfigSet(){
     wrap.appendChild(D({fontSize:"12px",color:"#F59E0B",background:"#FFFBEB",borderRadius:"8px",padding:"8px",marginBottom:"8px"},"⚠️ 변경 후 즉시 적용됩니다."));
     wrap.appendChild(B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"8px",padding:"10px",fontWeight:"700",cursor:"pointer",marginBottom:"8px"},
       async()=>{S.passwords=pw;await saveSettings();alert("저장됐어요!");},"저장"));
-    // 디스플레이 URL 복사 버튼
     const urlCopyBtn=B({width:"100%",background:"#F0FDF4",border:"1px solid #86EFAC",color:"#16A34A",borderRadius:"8px",padding:"10px",fontWeight:"700",cursor:"pointer"},
       ()=>{
         const key=pw.displayKey||S.passwords.displayKey;
@@ -2841,31 +2853,7 @@ function buildConfigSet(){
     return wrap;
   });
 
-  const vacAcc=mkAccordion("vac","📅 휴강 주차",()=>{
-    const wrap=D({});
-    wrap.appendChild(D({fontSize:"12px",color:"#94A3B8",marginBottom:"10px"},"휴강으로 지정된 주차는 주차 번호에서 제외되고, 출석 개근상 계산에서도 빠집니다."));
-    WEEKS.filter(w=>w>0).forEach(w=>{
-      const isVac=S.vacationWeeks.includes(w);
-      const row=D({display:"flex",alignItems:"center",gap:"8px",padding:"6px 0",borderBottom:"1px solid #F1F5F9"});
-      const cb=document.createElement("input");
-      cb.type="checkbox"; cb.checked=isVac;
-      cb.style.cssText="width:16px;height:16px;cursor:pointer;accent-color:#F59E0B;";
-      cb.addEventListener("change",async()=>{
-        if(cb.checked) S.vacationWeeks=[...S.vacationWeeks,w].sort((a,b)=>a-b);
-        else S.vacationWeeks=S.vacationWeeks.filter(x=>x!==w);
-        await saveSettings();
-        render();
-      });
-      const numNow=weekDisplayNum(w);
-      const label=D({fontSize:"12px",color:isVac?"#F59E0B":"#475569",flex:"1",fontWeight:isVac?"700":"400"},
-        isVac?`🚫 ${WEEK_DATES[w]}(휴강)`:`${numNow}주차 ${WEEK_DATES[w]}`
-      );
-      row.appendChild(cb); row.appendChild(label);
-      wrap.appendChild(row);
-    });
-    return wrap;
-  });
-  const wsel=sel(WEEKS.map(w=>[String(w),w===0?`0주차 ${WEEK_DATES[0]}`:`${weekDisplayNum(w)}주차 (${WEEK_DATES[w]})`]),String(S.week),()=>{},{width:"100%",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px",fontSize:"13px",boxSizing:"border-box",marginBottom:"8px"});
+  const wsel=sel(WEEKS.map(w=>[String(w),w===0?`0주차 ${WEEK_DATES[0]}`:`${w}주차 (${WEEK_DATES[w]})`]),String(S.week),()=>{},{width:"100%",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px",fontSize:"13px",boxSizing:"border-box",marginBottom:"8px"});
   const resetAcc=mkAccordion("reset","🗑️ 주차 초기화",()=>D({},
     D({fontSize:"12px",color:"#94A3B8",marginBottom:"10px"},"선택한 주차의 출석·게임 데이터를 모두 삭제합니다."),
     wsel,
@@ -2892,7 +2880,39 @@ function buildConfigSet(){
     fontSize:"13px",cursor:"pointer",marginTop:"6px"},
     ()=>downloadLogs(),"📥 활동 로그 다운로드 (CSV)");
 
-  return D({},scoreAcc,attAcc,vacAcc,pwAcc,resetAcc,batchLogBtn,logBtn);
+  const backupBtn=B({width:"100%",background:"#F8FAFC",border:"1px solid #CBD5E1",
+    borderRadius:"10px",padding:"11px",color:"#475569",fontWeight:"700",
+    fontSize:"13px",cursor:"pointer",marginTop:"6px"},
+    async()=>{
+      try{
+        backupBtn.textContent="⏳ 백업 중...";
+        backupBtn.disabled=true;
+        const backup={_backupDate:new Date().toISOString(),students:[],weeks:{},settings:null};
+        // 학생 데이터
+        const stuSnap=await getDoc(doc(db,"awana","students"));
+        if(stuSnap.exists()) backup.students=stuSnap.data();
+        // 주차 데이터
+        for(const w of WEEKS){
+          const wSnap=await getDoc(doc(db,"awana",`week_${w}`));
+          if(wSnap.exists()) backup.weeks[`week_${w}`]=wSnap.data();
+        }
+        // 설정
+        const setSnap=await getDoc(doc(db,"awana","settings"));
+        if(setSnap.exists()) backup.settings=setSnap.data();
+        // 다운로드
+        const today=new Date().toISOString().slice(0,10);
+        const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+        const a=document.createElement("a");
+        a.href=URL.createObjectURL(blob);
+        a.download=`awana_backup_${today}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast("✅ 백업 완료!");
+      }catch(e){alert("백업 실패: "+e.message);}
+      finally{backupBtn.textContent="💾 전체 데이터 백업 (JSON)";backupBtn.disabled=false;}
+    },"💾 전체 데이터 백업 (JSON)");
+
+  return D({},scoreAcc,attAcc,pwAcc,resetAcc,batchLogBtn,logBtn,backupBtn);
 }
 
 function buildStatsView(){
@@ -2973,14 +2993,11 @@ onSnapshot(doc(db,"awana","settings"),snap=>{
     S.settingsInput={...S.settings};
     if(d.passwords) S.passwords=d.passwords;
     S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
-    S.vacationWeeks=d.vacationWeeks||[];
-    // URL 파라미터 자동 로그인 체크
     if(!S.role){
       const params=new URLSearchParams(window.location.search);
-      const mode=params.get("mode");
-      const key=params.get("key");
-      if(mode==="display" && key && key===S.passwords.displayKey){
-        S.role="admin"; S._isDisplay=true; startListeners();
+      const mode=params.get("mode"),key=params.get("key");
+      if(mode==="display"&&key&&key===S.passwords.displayKey){
+        S.role="admin";S._isDisplay=true;startListeners();
       }
     }
   }
@@ -2991,9 +3008,9 @@ setTimeout(()=>{
     S.loaded=true;
     if(!S.role){
       const params=new URLSearchParams(window.location.search);
-      const mode=params.get("mode"); const key=params.get("key");
-      if(mode==="display" && key && key===S.passwords.displayKey){
-        S.role="admin"; S._isDisplay=true; startListeners();
+      const mode=params.get("mode"),key=params.get("key");
+      if(mode==="display"&&key&&key===S.passwords.displayKey){
+        S.role="admin";S._isDisplay=true;startListeners();
       }
     }
     render();
@@ -3220,7 +3237,7 @@ function buildSchedule(){
 
       function mkScheduleBox(s, week){
         const dateStr=WEEK_DATES[week]||"";
-        const kakaoText=s?`[어와나 ${weekDisplayNum(week)}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+        const kakaoText=s?`[어와나 ${week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
         const shareBtn=(()=>{
           if(!s||week===S.week) return null;
           const svgNS="http://www.w3.org/2000/svg";
@@ -3271,7 +3288,7 @@ function buildSchedule(){
       const thisBox=(()=>{
         const s=sc;
         const dateStr=WEEK_DATES[S.week]||"";
-        const kakaoText=s?`[어와나 ${weekDisplayNum(S.week)}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+        const kakaoText=s?`[어와나 ${S.week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
         const mkShareBtn=()=>{
           const svgNS="http://www.w3.org/2000/svg";
           const svg=document.createElementNS(svgNS,"svg");
@@ -3335,7 +3352,7 @@ function buildSchedule(){
         ?(()=>{
           const s=nextSc;
           const dateStr=WEEK_DATES[nextWeek]||"";
-          const kakaoText=s?`[어와나 ${weekDisplayNum(nextWeek)}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
+          const kakaoText=s?`[어와나 ${nextWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
           const shareBtn=(()=>{
             const svgNS="http://www.w3.org/2000/svg";
             const svg=document.createElementNS(svgNS,"svg");
