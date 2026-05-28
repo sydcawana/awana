@@ -347,9 +347,14 @@ function startListeners(){
     else if(cmd==="slides_prev"){if(S._pdfPage>1){S._pdfPage--;renderPdfPage();}}
     else if(cmd==="pdf_url"){S._slidesUrl=d.url||"";S._pdfDoc=null;S._pdfPage=1;S._pdfTotal=0;}
     else if(cmd==="bonus"){
-      // 보너스 점수: {cmd:"bonus", team:"red", val:50}
       const tid=d.team, val=d.val||0;
       if(tid) setBonus(tid,val);
+    }
+    else if(cmd==="sound"){
+      // 리모컨에서 직접 소리 명령
+      const sk=d.soundKey||"";
+      if(sk==="fanfare_big") playFanfareBig();
+      else if(sk) playSound(sk);
     }
   });
 }
@@ -2120,7 +2125,6 @@ async function renderPdfPage(){
   }catch(e){console.error(e);}
 }
 function buildStandby(){
-  // 대기화면이 뜨면 항상 수신 모드
   if(!S._isDisplay){S._isDisplay=true;}
   return D({position:"fixed",inset:"0",background:"#fff",
     zIndex:"350",display:"flex",flexDirection:"column",
@@ -2135,10 +2139,18 @@ function buildStandby(){
       SP({fontSize:"clamp(22px,4vw,36px)",fontWeight:"900",color:"#1E293B",display:"block",letterSpacing:"-0.5px"},"어쩜조아"),
       SP({fontSize:"clamp(13px,2vw,18px)",color:"#94A3B8",display:"block",marginTop:"6px"},"서울영동교회 어와나 클럽")
     ),
-    SP({fontSize:"clamp(12px,1.5vw,15px)",color:"#CBD5E1",fontWeight:"600"},
-      "리모컨 대기 중...")
+    SP({fontSize:"clamp(12px,1.5vw,15px)",color:"#CBD5E1",fontWeight:"600"},"리모컨 대기 중...")
   );
 }
+function unlockAudio(){
+  try{if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==="suspended") actx.resume();}catch(e){}
+}
+// 페이지 로드 시 자동 시도
+unlockAudio();
+// 첫 인터랙션(터치/클릭)에서도 언락
+["touchstart","mousedown","keydown"].forEach(ev=>
+  document.addEventListener(ev,()=>unlockAudio(),{once:true,passive:true}));
 function buildRemote(){
   function remBtn(label,color,bg,border,onClick){
     return B({width:"100%",background:bg,border:`1px solid ${border}`,borderRadius:"12px",
