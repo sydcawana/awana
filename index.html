@@ -3370,8 +3370,7 @@ function buildSchedule(){
       const curSc=isThis?sc:nextSc;
       const curWeek=isThis?S.week:nextWeek;
       const dateStr=WEEK_DATES[curWeek]||"";
-      const kakaoText=curSc?`[어와나 ${curWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(curSc.l1role,curSc.l1name)} / ${fmtPerson(curSc.l2role,curSc.l2name)}\n🙏 기도: ${fmtPerson(curSc.prole,curSc.pname)}`:"";
-
+      const kakaoText=curSc?`[어와나 ${curWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(curSc.l1role,curSc.l1name)} / ${fmtPerson(curSc.l2role,curSc.l2name)}\n🙏 기도: ${fmtPerson(curSc.prole,curSc.pname)}\n\n담당 선생님은 미리 진행 순서 전달과 준비(기도문, 단복) 부탁드려요~`:"";
       const mkShareBtn=()=>{
         const svgNS="http://www.w3.org/2000/svg";
         const svg=document.createElementNS(svgNS,"svg");
