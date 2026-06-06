@@ -121,6 +121,10 @@ const S = {
   _lastRemoteTs:0, _isDisplay:false, _showControl:false, _audioUnlocked:false,
   passwords:{general:"",game:"",admin:"",displayKey:""},
   students:[],
+  teachers:[],
+  newTeacher:{name:"",role:""},
+  teacherOpen:false,
+  teacherEdit:null,
   wdata:{},
   closedWeeks:Array.from({length:15},(_,i)=>i+1),
   ceremony:false, ceremonyReady:false, cScores:{red:0,yellow:0,green:0,blue:0}, cGameScores:{red:0,yellow:0,green:0,blue:0}, cRevealed:[], cBanner:"", _weekFocused:false, loaded:false,
@@ -137,6 +141,7 @@ const S = {
 // ════════════════════════════════════
 const fbSave = (id,data) => setDoc(doc(db,"awana",id),data);
 const saveStudents = () => fbSave("students",{list:S.students});
+const saveTeachers = () => fbSave("teachers",{list:S.teachers});
 const saveSettings = () => fbSave("settings",{...S.settings,passwords:S.passwords,closedWeeks:S.closedWeeks});
 
 // ── 로그 기록 ──
@@ -246,7 +251,12 @@ function listenWeek(w){
   wUnsub=onSnapshot(doc(db,"awana",`week_${w}`),snap=>{
     if(!snap.exists()){
       // Firebase에 문서 없을 때 - 기존 데이터 있으면 유지, 없을 때만 초기화
-      if(!S.wdata[w]) S.wdata[w]=initWD();
+      if(!S.wdata[w]){
+        const fresh=initWD();
+        S.students.forEach(s=>{fresh.students[s.id]={attendance:true,uniform:true,signs:0};});
+        S.teachers.forEach(t=>{fresh.teachers[t.id]=true;});
+        S.wdata[w]=fresh;
+      }
       render(); return;
     }
     const incoming=snap.data();
@@ -267,6 +277,10 @@ function listenWeek(w){
 function startListeners(){
   onSnapshot(doc(db,"awana","students"),snap=>{
     S.students=snap.exists()?(snap.data().list||[]):[];
+    render();
+  });
+  onSnapshot(doc(db,"awana","teachers"),snap=>{
+    S.teachers=snap.exists()?(snap.data().list||[]):[];
     render();
   });
   WEEKS.forEach(w=>{
@@ -340,7 +354,7 @@ function startListeners(){
 // ════════════════════════════════════
 function initRound(n){return{id:Date.now()+n,name:`라운드 ${n}`,mode:"team",scores:{red:0,yellow:0,green:0,blue:0}};}
 function initGame(n=1){return{rounds:Array.from({length:n},(_,i)=>initRound(i+1))};}
-function initWD(){return{students:{},games:{sparks:initGame(1),tnt:initGame(1)},gameFinalized:false};}
+function initWD(){return{students:{},teachers:{},games:{sparks:initGame(1),tnt:initGame(1)},gameFinalized:false};}
 function getWD(){return S.wdata[S.week]||initWD();}
 function getSD(sid){return getWD().students?.[sid]||{attendance:false,uniform:false,signs:0};}
 function getTeam(tid){return TEAMS.find(t=>t.id===tid)||TEAMS[0];}
@@ -482,6 +496,10 @@ async function toggleLock(){
 }
 async function resetWeekData(w){
   const fresh=initWD();
+  // 학생 전원 출석/단복 체크
+  S.students.forEach(s=>{fresh.students[s.id]={attendance:true,uniform:true,signs:0};});
+  // 교사 전원 출석 체크
+  S.teachers.forEach(t=>{fresh.teachers[t.id]=true;});
   await fbSave(`week_${w}`,fresh);
   S.wdata[w]=fresh;
   if(S.week===w) listenWeek(w);
@@ -1337,7 +1355,7 @@ function buildGame(){
           const pts=gameCum(type,t.id);
           const cell=D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",gap:"0px"});
           cell.appendChild(SP({fontSize:"12px",fontWeight:"800",color:t.color,textAlign:"center"},t.name));
-          cell.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#475569",textAlign:"center"},pts.toLocaleString()));
+          cell.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#1E293B",textAlign:"center"},pts.toLocaleString()));
           row.appendChild(cell);
         });
         return row;
@@ -1453,7 +1471,7 @@ function buildGameType(type,wd,fin,locked){
       scoreButtons.forEach(sc=>{
         const isSelected=curScore===sc;
         const sb=D({flex:"1",background:isSelected?t.color:"#fff",
-          color:isSelected?"#fff":isTeamLocked?"#CBD5E1":"#475569",
+          color:isSelected?"#fff":isTeamLocked?"#CBD5E1":"#1E293B",
           borderRadius:"20px",padding:"14px 4px",textAlign:"center",
           fontWeight:"700",fontSize:"14px",cursor:(fin||locked)?"not-allowed":"pointer",
           border:`1.5px solid ${isSelected?t.color:"#E2E8F0"}`,
@@ -1745,7 +1763,7 @@ function buildAwardPopup(){
         mkBadgeCard(HB_BADGE_LABEL[hb]||"승급표식",hadBadge,hasBadge,"badge","badge"),
         mkBadgeCard(HB_WING_LABEL[hb]||"날개핀",hadWing,hasWing,"wing","wing")
       ),
-      D({fontWeight:"700",fontSize:"13px",color:"#475569",marginBottom:"8px"},"▸ 보석"),
+      D({fontWeight:"700",fontSize:"13px",color:"#1E293B",marginBottom:"8px"},"▸ 보석"),
       totalGems2>=8
         ? D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},"🎉 8개 보석을 모두 받았어요!")
         : D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
@@ -1867,7 +1885,7 @@ function buildAwardPopup(){
 
     return D({},
       D({display:"flex",gap:"10px",marginBottom:"14px"},showTntEnroll?enrollCardTnt:null,awardCard),
-      D({fontWeight:"700",fontSize:"13px",color:"#475569",marginBottom:"10px"},"▸ 씰"),
+      D({fontWeight:"700",fontSize:"13px",color:"#1E293B",marginBottom:"10px"},"▸ 씰"),
       D({fontSize:"11px",color:"#94A3B8",marginBottom:"10px"},
         `${hb} · 완료된 씰은 채워진 원으로 표시`),
       sealGrid
@@ -1904,13 +1922,13 @@ function buildAwardPopup(){
         B({background:"none",border:"none",fontSize:"22px",cursor:"pointer",color:"#64748B"},close,"×")
       ),
       summary.length
-        ? D({fontSize:"12px",color:"#475569",marginBottom:"12px",background:"#F1F5F9",
+        ? D({fontSize:"12px",color:"#1E293B",marginBottom:"12px",background:"#F1F5F9",
             borderRadius:"8px",padding:"6px 10px",fontWeight:"600"},
             "이번 주: "+summary.join(" "))
         : D({fontSize:"12px",color:"#94A3B8",marginBottom:"12px"},"이번 주 시상 없음"),
       isSpks?buildSparks():buildTnt(),
       D({marginTop:"16px",borderTop:"1px solid #F1F5F9",paddingTop:"14px"},
-        D({fontWeight:"600",fontSize:"13px",color:"#475569",marginBottom:"6px"},"📝 특이사항 메모"),
+        D({fontWeight:"600",fontSize:"13px",color:"#1E293B",marginBottom:"6px"},"📝 특이사항 메모"),
         (()=>{
           const ta=document.createElement("textarea");
           Object.assign(ta.style,{width:"100%",boxSizing:"border-box",border:"1px solid #E2E8F0",
@@ -1928,7 +1946,7 @@ function buildAwardPopup(){
           return ta;
         })()
       ),
-      B({width:"100%",background:"#F1F5F9",color:"#475569",border:"none",
+      B({width:"100%",background:"#F1F5F9",color:"#1E293B",border:"none",
         borderRadius:"10px",padding:"12px",fontWeight:"600",fontSize:"14px",
         cursor:"pointer",marginTop:"14px"},close,"닫기")
     )
@@ -2081,12 +2099,12 @@ function buildRemote(){
       D({width:"10px",height:"10px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
       SP({fontWeight:"800",fontSize:"15px",color:t.color,flex:"1"},t.name+"팀"),
       B({background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:"8px",
-        padding:"6px 14px",fontSize:"16px",fontWeight:"700",cursor:"pointer",color:"#475569"},
+        padding:"6px 14px",fontSize:"16px",fontWeight:"700",cursor:"pointer",color:"#1E293B"},
         async()=>{const v=Math.max(0,bonus-50);await setBonus(t.id,v);await sendRemote("bonus",{team:t.id,val:v});},"−"),
       SP({fontSize:"14px",fontWeight:"700",color:bonus>0?"#2563EB":"#CBD5E1",minWidth:"44px",textAlign:"center"},
         bonus>0?"+"+bonus:"0"),
       B({background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:"8px",
-        padding:"6px 14px",fontSize:"16px",fontWeight:"700",cursor:"pointer",color:"#475569"},
+        padding:"6px 14px",fontSize:"16px",fontWeight:"700",cursor:"pointer",color:"#1E293B"},
         async()=>{const v=bonus+50;await setBonus(t.id,v);await sendRemote("bonus",{team:t.id,val:v});},"+")
     );
   });
@@ -2335,7 +2353,7 @@ function buildCeremony(){
         D({fontSize:fs.team,fontWeight:"900",color:t.color,lineHeight:"1.2"},t.name+"팀"),
         showGame?D({fontSize:"clamp(13px,2vw,20px)",fontWeight:"800",color:"#1E293B",lineHeight:"1.3"},
           gs.toLocaleString()):null,
-        showHb?D({fontSize:"clamp(13px,2vw,20px)",fontWeight:"800",color:"#475569",lineHeight:"1.3"},
+        showHb?D({fontSize:"clamp(13px,2vw,20px)",fontWeight:"800",color:"#1E293B",lineHeight:"1.3"},
           hs.toLocaleString()):null
       );
 
@@ -2468,7 +2486,7 @@ function buildCeremony(){
   );
 }
 function buildSettings(){
-  const tabs=[["students","👤 학생"],["schedule","📋 진행"],["config","⚙️ 설정"],["stats","📊 통계"]];
+  const tabs=[["students","👤 학생"],["teachers","👨‍🏫 교사"],["schedule","📋 진행"],["config","⚙️ 설정"],["stats","📊 통계"]];
   return D({position:"fixed",inset:"0",zIndex:"100",display:"flex",flexDirection:"column",maxWidth:"480px",margin:"0 auto"},
     D({position:"absolute",inset:"0",background:"rgba(0,0,0,0.3)"},
       (()=>{const d=document.createElement("div");d.style.cssText="position:absolute;inset:0";d.addEventListener("click",()=>{S.showSettings=false;render();});return d;})()
@@ -2504,6 +2522,7 @@ function buildSettings(){
       ),
       D({padding:"16px 20px 32px"},
         S.stTab==="students"?buildStMgr():
+        S.stTab==="teachers"?buildTeacherMgr():
         S.stTab==="schedule"?buildScheduleEditor():
         S.stTab==="stats"?buildStatsView():
         S.stTab==="stats_loading"?D({padding:"20px",textAlign:"center",color:"#94A3B8"},"📊 데이터 로딩 중..."):
@@ -2539,6 +2558,144 @@ function applyGradeBatch(){
   else alert(`학년 반영 완료! (${updated}명)`);
   render();
 }
+function buildTeacherMgr(){
+  const COLS=["이름","역할/구분"];
+  const KEYS=["name","role"];
+
+  // 편집 버퍼: 기존 교사 + 빈 행 1개
+  if(!S.teacherEdit){
+    S.teacherEdit=[
+      ...S.teachers.map(t=>({id:t.id,name:t.name,role:t.role||""})),
+      {id:`t_new_${Date.now()}`,name:"",role:"",_new:true}
+    ];
+  }
+
+  const status=D({fontSize:"12px",color:"#94A3B8",marginTop:"6px",minHeight:"18px"},"");
+
+  const cntLabel=D({fontSize:"12px",color:"#64748B",marginBottom:"8px",textAlign:"right"},
+    `총 ${S.teachers.length}명`);
+
+  // 테이블
+  const tableWrap=document.createElement("div");
+  Object.assign(tableWrap.style,{overflowX:"auto",borderRadius:"10px",border:"1px solid #E2E8F0"});
+
+  const table=document.createElement("table");
+  Object.assign(table.style,{width:"100%",borderCollapse:"collapse",fontSize:"12px"});
+
+  // 헤더
+  const thead=document.createElement("thead");
+  const hrow=document.createElement("tr");
+  Object.assign(hrow.style,{background:"#1E293B"});
+  ["이름","역할/구분",""].forEach(h=>{
+    const th=document.createElement("th");
+    th.textContent=h;
+    Object.assign(th.style,{padding:"8px 6px",color:"#94A3B8",fontWeight:"700",
+      fontSize:"11px",textAlign:"left",whiteSpace:"nowrap",
+      borderRight:"1px solid #334155"});
+    hrow.appendChild(th);
+  });
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  // 데이터 행
+  const tbody=document.createElement("tbody");
+
+  S.teacherEdit.forEach((row,ri)=>{
+    const isNew=!!row._new;
+    const isLast=ri===S.teacherEdit.length-1;
+    const tr=document.createElement("tr");
+    Object.assign(tr.style,{
+      background:isNew?"#F0FDF4":ri%2===0?"#fff":"#F8FAFC",
+      borderBottom:"1px solid #F1F5F9"
+    });
+    tr.addEventListener("mouseenter",()=>tr.style.background=isNew?"#DCFCE7":"#EFF6FF");
+    tr.addEventListener("mouseleave",()=>tr.style.background=isNew?"#F0FDF4":ri%2===0?"#fff":"#F8FAFC");
+
+    KEYS.forEach((key,ki)=>{
+      const td=document.createElement("td");
+      Object.assign(td.style,{padding:"3px 4px",borderRight:"1px solid #F1F5F9",
+        width:ki===0?"35%":"55%"});
+      const cellInp=document.createElement("input");
+      cellInp.value=row[key];
+      cellInp.placeholder=isNew?(ki===0?"이름 입력":"역할/구분 (선택)"):COLS[ki];
+      Object.assign(cellInp.style,{width:"100%",boxSizing:"border-box",
+        border:"1px solid transparent",borderRadius:"6px",
+        padding:"6px 6px",fontSize:"12px",
+        color:isNew&&!row[key]?"#94A3B8":"#1E293B",
+        background:"transparent",outline:"none",fontFamily:"inherit"});
+      cellInp.addEventListener("focus",()=>{
+        cellInp.style.border="1px solid #3B82F6";
+        cellInp.style.background="#fff";
+        cellInp.style.color="#1E293B";
+      });
+      cellInp.addEventListener("blur",()=>{
+        cellInp.style.border="1px solid transparent";
+        cellInp.style.background="transparent";
+      });
+      cellInp.addEventListener("input",()=>{
+        S.teacherEdit[ri][key]=cellInp.value;
+        // 빈 행에 이름 입력 시작하면 새 빈 행 추가
+        if(isNew&&isLast&&key==="name"&&cellInp.value.trim()){
+          row._new=false;
+          S.teacherEdit.push({id:`t_new_${Date.now()}`,name:"",role:"",_new:true});
+          render();
+        }
+      });
+      td.appendChild(cellInp);
+      tr.appendChild(td);
+    });
+
+    // 삭제/빈칸 버튼 셀
+    const delTd=document.createElement("td");
+    Object.assign(delTd.style,{padding:"3px 6px",textAlign:"center",width:"10%"});
+    if(!isNew){
+      const delBtn=B({background:"none",border:"1px solid #FCA5A5",borderRadius:"6px",
+        color:"#EF4444",fontSize:"11px",padding:"3px 8px",cursor:"pointer"},
+        async()=>{
+          if(!confirm(`"${row.name}" 교사를 삭제할까요?`)) return;
+          S.teachers=S.teachers.filter(t=>t.id!==row.id);
+          S.teacherEdit=null;
+          await saveTeachers();render();
+        },"삭제"
+      );
+      delTd.appendChild(delBtn);
+    }
+    tr.appendChild(delTd);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+
+  const saveBtn=B({width:"100%",background:"#1E293B",color:"#fff",border:"none",
+    borderRadius:"10px",padding:"12px",fontWeight:"700",fontSize:"14px",cursor:"pointer",marginTop:"10px"},
+    async()=>{
+      if(!S.teacherEdit) return;
+      S.teachers=S.teacherEdit
+        .filter(row=>row.name.trim())
+        .map(row=>({
+          id:row._new?`t_${Date.now()}_${Math.random().toString(36).slice(2)}`:row.id,
+          name:row.name.trim(),
+          role:row.role.trim()
+        }));
+      S.teacherEdit=null;
+      await saveTeachers();
+      status.textContent="✅ 저장 완료!";
+      setTimeout(()=>{status.textContent="";},2000);
+      render();
+    },"💾 저장"
+  );
+
+  return D({},
+    D({fontSize:"12px",color:"#64748B",marginBottom:"8px"},
+      "셀을 클릭해서 바로 수정하고, 저장 버튼으로 한 번에 반영"),
+    cntLabel,
+    tableWrap,
+    saveBtn,
+    status
+  );
+}
+
 function buildStMgr(){
   const srch=inp("🔍 학생 이름 검색...",S.search,v=>{S.search=v;render();},{width:"100%",marginBottom:"12px",boxSizing:"border-box"});
   const nameI=inp("이름",S.newSt.name,v=>{S.newSt.name=v;},{flex:"1"});
@@ -2671,7 +2828,7 @@ function buildStMgr(){
 
   return D({},
     srch,
-    D({fontWeight:"600",fontSize:"13px",color:"#475569",marginBottom:"8px",display:"flex",justifyContent:"space-between",alignItems:"center"},
+    D({fontWeight:"600",fontSize:"13px",color:"#1E293B",marginBottom:"8px",display:"flex",justifyContent:"space-between",alignItems:"center"},
       SP({},"학생 추가"),
       SP({fontSize:"11px",color:"#94A3B8"},`총 ${S.students.length}명`)
     ),
@@ -2788,14 +2945,14 @@ function buildConfigSet(){
   const attAcc=mkAccordion("att","🏆 출석상",()=>D({},
     D({fontSize:"12px",color:"#94A3B8",marginBottom:"10px"},"수여 주차와 허용 결석 횟수를 설정합니다."),
     D({background:"#F8FAFC",borderRadius:"8px",padding:"10px",marginBottom:"8px"},
-      D({fontWeight:"600",fontSize:"12px",color:"#475569",marginBottom:"8px"},"1차 출석상"),
+      D({fontWeight:"600",fontSize:"12px",color:"#1E293B",marginBottom:"8px"},"1차 출석상"),
       D({display:"flex",gap:"8px"},
         D({flex:"2"},D({fontSize:"11px",color:"#64748B",marginBottom:"4px"},"수여 주차"),mkWeekSel("attAward1Week")),
         D({flex:"2"},D({fontSize:"11px",color:"#64748B",marginBottom:"4px"},"결석 허용"),mkAllowSel("attAward1Allow"))
       )
     ),
     D({background:"#F8FAFC",borderRadius:"8px",padding:"10px",marginBottom:"12px"},
-      D({fontWeight:"600",fontSize:"12px",color:"#475569",marginBottom:"8px"},"2차 출석상"),
+      D({fontWeight:"600",fontSize:"12px",color:"#1E293B",marginBottom:"8px"},"2차 출석상"),
       D({display:"flex",gap:"8px"},
         D({flex:"2"},D({fontSize:"11px",color:"#64748B",marginBottom:"4px"},"수여 주차"),mkWeekSel("attAward2Week")),
         D({flex:"2"},D({fontSize:"11px",color:"#64748B",marginBottom:"4px"},"결석 허용"),mkAllowSel("attAward2Allow"))
@@ -2856,7 +3013,7 @@ function buildConfigSet(){
     ()=>downloadLogs(),"📥 활동 로그 다운로드 (CSV)");
 
   const backupBtn=B({width:"100%",background:"#F8FAFC",border:"1px solid #CBD5E1",
-    borderRadius:"10px",padding:"11px",color:"#475569",fontWeight:"700",
+    borderRadius:"10px",padding:"11px",color:"#1E293B",fontWeight:"700",
     fontSize:"13px",cursor:"pointer",marginTop:"6px"},
     async()=>{
       try{
@@ -2950,8 +3107,8 @@ function buildStatsView(){
               SP({fontWeight:"600",color:"#1E293B",fontSize:"13px"},win2[t.id],"회")
             )
           ),
-          D({fontSize:"11px",color:"#94A3B8",marginBottom:"4px"},"핸드북 누적 ",SP({color:"#475569",fontWeight:"600"},cumHb.toLocaleString()),"점"),
-          D({fontSize:"11px",color:"#94A3B8"},"암송 누적 ",SP({color:"#475569",fontWeight:"600"},Math.round(cumSigns*10)/10),"개")
+          D({fontSize:"11px",color:"#94A3B8",marginBottom:"4px"},"핸드북 누적 ",SP({color:"#1E293B",fontWeight:"600"},cumHb.toLocaleString()),"점"),
+          D({fontSize:"11px",color:"#94A3B8"},"암송 누적 ",SP({color:"#1E293B",fontWeight:"600"},Math.round(cumSigns*10)/10),"개")
         );
       })
     ),
@@ -3069,14 +3226,14 @@ function buildSchedule(){
 
   function mkClubHeader(type){
     const icon=document.createElement("div");
-    icon.appendChild(type==="sparks"?mkSparksIcon(18):mkTntIcon(18));
+    icon.appendChild(type==="sparks"?mkSparksIcon(16):mkTntIcon(16));
     const label=type==="sparks"?"스팍스":"티앤티";
     const grpColor=type==="sparks"?"#EF4444":"#16A34A";
     return D({display:"flex",alignItems:"center",gap:"6px",
       margin:"14px 0 8px",padding:"6px 0 6px",
       borderBottom:`2px solid ${grpColor}`},
       icon,
-      D({fontWeight:"700",fontSize:"15px",color:"#475569",flex:"1"},label)
+      D({fontWeight:"700",fontSize:"13px",color:"#475569",flex:"1"},label)
     );
   }
 
@@ -3143,7 +3300,7 @@ function buildSchedule(){
       margin:"14px 0 8px",padding:"6px 0 6px",
       borderBottom:`2px solid ${grpColor}`,flexWrap:"wrap"},
       icon,
-      D({fontWeight:"700",fontSize:"13px",color:"#475569"},label),
+      D({fontWeight:"700",fontSize:"13px",color:"#1E293B"},label),
       sortToggle,
       D({flex:"1"}),
       attBtn,
@@ -3185,7 +3342,6 @@ function buildSchedule(){
       mkClubSection(teamStudents,"tnt")
     );
   }
-
   const selT=TEAMS.find(t=>t.id===selTeam);
   const teamSection=D({marginTop:"18px"},
     D({display:"flex",gap:"6px",marginBottom:"14px"},
@@ -3209,182 +3365,192 @@ function buildSchedule(){
       if(!S.scheduleTab) S.scheduleTab="this";
       const nextWeek=S.week+1;
       const nextSc=nextWeek<WEEK_DATES.length?S.schedule[String(nextWeek)]:null;
+      const showNext=nextWeek<WEEK_DATES.length;
+      const isThis=S.scheduleTab==="this";
+      const curSc=isThis?sc:nextSc;
+      const curWeek=isThis?S.week:nextWeek;
+      const dateStr=WEEK_DATES[curWeek]||"";
+      const kakaoText=curSc?`[어와나 ${curWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(curSc.l1role,curSc.l1name)} / ${fmtPerson(curSc.l2role,curSc.l2name)}\n🙏 기도: ${fmtPerson(curSc.prole,curSc.pname)}`:"";
 
-      function mkScheduleBox(s, week){
-        const dateStr=WEEK_DATES[week]||"";
-        const kakaoText=s?`[어와나 ${week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
-        const shareBtn=(()=>{
-          if(!s||week===S.week) return null;
-          const svgNS="http://www.w3.org/2000/svg";
-          const svg=document.createElementNS(svgNS,"svg");
-          svg.setAttribute("width","20");svg.setAttribute("height","20");
-          svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
-          const path=document.createElementNS(svgNS,"path");
-          path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
-          svg.appendChild(path);
-          const btn=document.createElement("button");
-          btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
-          btn.appendChild(svg);
-          btn.addEventListener("click",()=>{
-            if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
-            else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
-          });
-          return btn;
-        })();
-        if(!s) return D({textAlign:"center",padding:"20px 0",color:"#94A3B8",fontSize:"13px"},"순서 정보가 없어요\n설정에서 입력해주세요");
-        return D({background:"#fff",borderRadius:"0 0 12px 12px",border:"2px solid #CBD5E1",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
-          D({},
-            D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
-              SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
-              shareBtn
-            ),
-            D({display:"flex",gap:"8px"},
-              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))
-              ),
-              D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"16px"},"/"),
-              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name))
-              )
-            )
-          ),
-          D({},
-            D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
-            D({background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-              SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.prole,s.pname))
-            )
-          )
-        );
-      }
+      const mkShareBtn=()=>{
+        const svgNS="http://www.w3.org/2000/svg";
+        const svg=document.createElementNS(svgNS,"svg");
+        svg.setAttribute("width","18");svg.setAttribute("height","18");
+        svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
+        const path=document.createElementNS(svgNS,"path");
+        path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
+        svg.appendChild(path);
+        const btn=document.createElement("button");
+        btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
+        btn.appendChild(svg);
+        btn.addEventListener("click",()=>{
+          if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
+          else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
+        });
+        return btn;
+      };
 
-      const nextOpen=S.scheduleNextOpen||false;
+      const tabHeader=D({display:"flex",borderRadius:"12px 12px 0 0",overflow:"hidden",
+        border:"2px solid #CBD5E1",borderBottom:"none"},
+        B({flex:"1",padding:"9px 8px",border:"none",cursor:"pointer",
+          fontWeight:"700",fontSize:"13px",
+          background:isThis?"#1E293B":"#F8FAFC",
+          color:isThis?"#fff":"#94A3B8"},
+          ()=>{S.scheduleTab="this";render();},
+          `이번 주 (${WEEK_DATES[S.week]||""})`
+        ),
+        showNext?B({flex:"1",padding:"9px 8px",border:"none",cursor:"pointer",
+          fontWeight:"700",fontSize:"13px",
+          background:!isThis?"#1E293B":"#F8FAFC",
+          color:!isThis?"#fff":"#94A3B8"},
+          ()=>{S.scheduleTab="next";render();},
+          `다음 주 (${WEEK_DATES[nextWeek]||""})`
+        ):null
+      );
 
-      // 이번 주 박스 (항상 표시, 상단 둥글게)
-      const thisBox=(()=>{
-        const s=sc;
-        const dateStr=WEEK_DATES[S.week]||"";
-        const kakaoText=s?`[어와나 ${S.week}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
-        const mkShareBtn=()=>{
-          const svgNS="http://www.w3.org/2000/svg";
-          const svg=document.createElementNS(svgNS,"svg");
-          svg.setAttribute("width","18");svg.setAttribute("height","18");
-          svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
-          const path=document.createElementNS(svgNS,"path");
-          path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
-          svg.appendChild(path);
-          const btn=document.createElement("button");
-          btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
-          btn.appendChild(svg);
-          btn.addEventListener("click",()=>{
-            if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
-            else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
-          });
-          return btn;
-        };
-        if(!s) return D({background:"#fff",borderRadius:"12px",border:"2px solid #CBD5E1",
+      const contentBox=(()=>{
+        const s=curSc;
+        const bg=isThis?"#fff":"#F8FAFC";
+        if(!s) return D({background:bg,borderRadius:"0 0 12px 12px",
+          border:"2px solid #CBD5E1",borderTop:"none",
           padding:"16px 18px",textAlign:"center",color:"#94A3B8",fontSize:"13px"},
-          "이번 주 순서 정보가 없어요");
-        return D({background:"#fff",borderRadius:"12px",border:"2px solid #CBD5E1",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"14px"},
+          "순서 정보가 없어요");
+        return D({background:bg,borderRadius:"0 0 12px 12px",
+          border:"2px solid #CBD5E1",borderTop:"none",
+          padding:"14px 16px",display:"flex",flexDirection:"column",gap:"12px"},
           D({},
             D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
-              SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
+              SP({fontSize:"12px",color:"#1E293B",fontWeight:"800"},"📢 기수"),
               mkShareBtn()
             ),
             D({display:"flex",gap:"8px"},
-              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))),
-              D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"16px"},"/"),
-              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name)))
+              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+                SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))),
+              D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"14px"},"/"),
+              D({flex:"1",background:"#F1F5F9",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+                SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name)))
             )
           ),
           D({},
-            D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
-            D({background:"#F1F5F9",borderRadius:"8px",padding:"10px 12px",textAlign:"center",border:"1px solid #E2E8F0"},
-              SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},fmtPerson(s.prole,s.pname)))
+            D({fontSize:"12px",color:"#1E293B",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
+            D({background:"#F1F5F9",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
+              SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.prole,s.pname)))
           )
         );
       })();
 
-      // 다음 주 아코디언 토글 버튼
-      const nextToggle=nextWeek<WEEK_DATES.length
-        ?B({width:"100%",background:"#F8FAFC",border:"1px solid #E2E8F0",
-            borderRadius:nextOpen?"10px 10px 0 0":"10px",
-            padding:"9px 14px",marginTop:"10px",
-            display:"flex",justifyContent:"space-between",alignItems:"center",
-            cursor:"pointer",fontWeight:"600",fontSize:"13px",color:"#64748B"},
-            ()=>{S.scheduleNextOpen=!S.scheduleNextOpen;render();},
-            D({display:"flex",alignItems:"center",gap:"6px"},
-              SP({},(nextOpen?"▾ ":"▸ ")+`다음 주 진행 순서 (${WEEK_DATES[nextWeek]})`),
-              mkScheduleBox(nextSc,nextWeek)===null?null:null
-            ),
-            nextOpen?null:null
-          )
-        :null;
-
-      // 다음 주 내용 (펼쳐졌을 때)
-      const nextContent=(nextOpen&&nextWeek<WEEK_DATES.length)
-        ?(()=>{
-          const s=nextSc;
-          const dateStr=WEEK_DATES[nextWeek]||"";
-          const kakaoText=s?`[어와나 ${nextWeek}주차 (${dateStr}) 진행 순서]\n📢 기수: ${fmtPerson(s.l1role,s.l1name)} / ${fmtPerson(s.l2role,s.l2name)}\n🙏 기도: ${fmtPerson(s.prole,s.pname)}`:"";
-          const shareBtn=(()=>{
-            const svgNS="http://www.w3.org/2000/svg";
-            const svg=document.createElementNS(svgNS,"svg");
-            svg.setAttribute("width","18");svg.setAttribute("height","18");
-            svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
-            const path=document.createElementNS(svgNS,"path");
-            path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
-            svg.appendChild(path);
-            const btn=document.createElement("button");
-            btn.style.cssText="background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;flex-shrink:0;";
-            btn.appendChild(svg);
-            btn.addEventListener("click",e=>{e.stopPropagation();
-              if(navigator.share){navigator.share({title:"어와나 진행 순서",text:kakaoText}).catch(()=>{});}
-              else{navigator.clipboard?.writeText(kakaoText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
-            });
-            return btn;
-          })();
-          if(!s) return D({background:"#F8FAFC",borderRadius:"0 0 10px 10px",border:"1px solid #E2E8F0",
-            borderTop:"none",padding:"14px",textAlign:"center",color:"#94A3B8",fontSize:"13px"},"순서 정보가 없어요");
-          return D({background:"#F8FAFC",borderRadius:"0 0 10px 10px",border:"1px solid #E2E8F0",
-            borderTop:"none",padding:"14px",display:"flex",flexDirection:"column",gap:"12px"},
-            D({},
-              D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"},
-                SP({fontSize:"12px",color:"#475569",fontWeight:"800"},"📢 기수"),
-                shareBtn
-              ),
-              D({display:"flex",gap:"8px"},
-                D({flex:"1",background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
-                  SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l1role,s.l1name))),
-                D({display:"flex",alignItems:"center",color:"#94A3B8",fontSize:"14px"},"/"),
-                D({flex:"1",background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
-                  SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.l2role,s.l2name)))
-              )
-            ),
-            D({},
-              D({fontSize:"12px",color:"#475569",fontWeight:"800",marginBottom:"6px"},"🙏 기도"),
-              D({background:"#fff",borderRadius:"8px",padding:"9px 10px",textAlign:"center",border:"1px solid #E2E8F0"},
-                SP({fontWeight:"700",fontSize:"13px",color:"#1E293B"},fmtPerson(s.prole,s.pname)))
-            )
-          );
-        })()
-        :null;
-
-      const fullViewBtn=sc?B({
-        width:"100%",background:"#1E293B",border:"none",borderRadius:"10px",
-        padding:"11px",color:"#fff",fontWeight:"700",fontSize:"14px",
-        cursor:"pointer",marginBottom:"10px",display:"flex",
-        alignItems:"center",justifyContent:"center",gap:"6px"},
-        ()=>{S.scheduleScreen=true;render();},
-        "⛶ 전체 보기"):null;
-
       return D({},
-        fullViewBtn,
-        thisBox,
-        nextToggle,
-        nextContent
+        tabHeader,
+        contentBox
       );
+    })(),
+    (()=>{
+      const allStu=S.students;
+      const stuAtt=allStu.filter(s=>(wd.students?.[s.id]||{}).attendance).length;
+      const stuTotal=allStu.length;
+      const tchrTotal=S.teachers.length;
+      const tchrAtt=tchrTotal===0?0:S.teachers.filter(t=>wd.teachers?.[t.id]!==false).length;
+      const canCheck=S.role==="game"||S.role==="admin";
+      const teacherOpen=S.teacherOpen||false;
+
+      const shareText=`[어와나 ${S.week}주차(${WEEK_DATES[S.week]||""}) 출석 집계]\n학생: ${stuAtt}명  교사: ${tchrAtt}명  총합: ${stuAtt+tchrAtt}명`;
+      const shareBtn=(()=>{
+        const svgNS="http://www.w3.org/2000/svg";
+        const svg=document.createElementNS(svgNS,"svg");
+        svg.setAttribute("width","16");svg.setAttribute("height","16");
+        svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("fill","#94A3B8");
+        const path=document.createElementNS(svgNS,"path");
+        path.setAttribute("d","M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z");
+        svg.appendChild(path);
+        const btn=document.createElement("button");
+        btn.style.cssText="background:none;border:none;padding:6px 10px;cursor:pointer;display:flex;align-items:center;flex-shrink:0;border-left:1px solid #E2E8F0;";
+        btn.appendChild(svg);
+        btn.addEventListener("click",e=>{
+          e.stopPropagation();
+          if(navigator.share){navigator.share({title:"어와나 참석 인원",text:shareText}).catch(()=>{});}
+          else{navigator.clipboard?.writeText(shareText).then(()=>showToast("클립보드에 복사됐어요 ✔")).catch(()=>{});}
+        });
+        return btn;
+      })();
+
+      const header=D({display:"flex",alignItems:"center",
+        background:"#F8FAFC",border:"1px solid #E2E8F0",
+        borderRadius:teacherOpen?"10px 10px 0 0":"10px",
+        marginTop:"12px",overflow:"hidden"},
+        D({display:"flex",alignItems:"center",gap:"5px",flex:"1",
+          justifyContent:"center",padding:"10px 8px",
+          borderRight:"1px solid #E2E8F0"},
+          SP({fontSize:"13px",color:"#64748B",fontWeight:"600"},"학생"),
+          SP({fontWeight:"700",fontSize:"14px",color:"#1E293B"},`${stuAtt}`),
+          SP({fontSize:"12px",color:"#94A3B8"},`/${stuTotal}`)
+        ),
+        D({display:"flex",alignItems:"center",gap:"5px",flex:"1",
+          justifyContent:"center",padding:"10px 8px",
+          cursor:tchrTotal>0?"pointer":"default",userSelect:"none"},
+          SP({fontSize:"13px",color:"#64748B",fontWeight:"600"},"교사"),
+          SP({fontWeight:"700",fontSize:"14px",
+            color:tchrAtt===tchrTotal&&tchrTotal>0?"#16A34A":"#1E293B"},`${tchrAtt}`),
+          SP({fontSize:"12px",color:"#94A3B8"},`/${tchrTotal}`),
+          tchrTotal>0?SP({fontSize:"11px",color:"#94A3B8",marginLeft:"4px"},teacherOpen?"▲":"▼"):null
+        ),
+        shareBtn
+      );
+      if(tchrTotal>0){
+        header.children[1].addEventListener("click",()=>{S.teacherOpen=!S.teacherOpen;render();});
+      }
+
+      const teacherList=D({border:"1px solid #E2E8F0",borderTop:"none",
+        borderRadius:"0 0 10px 10px",overflow:"hidden",
+        display:teacherOpen?"block":"none"});
+
+      const sortedTeachers=[...S.teachers].sort((a,b)=>{
+        const rank=t=>{
+          const r=t.role||"";
+          if(r.includes("교역자")) return 0;
+          if(r.includes("부장")) return 1;
+          return 2;
+        };
+        const ra=rank(a),rb=rank(b);
+        if(ra!==rb) return ra-rb;
+        return a.name.localeCompare(b.name,"ko");
+      });
+      if(teacherOpen){
+        sortedTeachers.forEach((t,ti)=>{
+          const isAtt=wd.teachers?.[t.id]!==false;
+          const row=D({display:"flex",alignItems:"center",gap:"8px",
+            padding:"9px 14px",
+            background:ti%2===0?"#fff":"#F8FAFC",
+            borderBottom:ti<sortedTeachers.length-1?"1px solid #F1F5F9":"none"});
+          const teamColor=(r=>{
+            if(!r) return null;
+            if(r.includes("빨강")) return "#EF4444";
+            if(r.includes("파랑")) return "#3B82F6";
+            if(r.includes("초록")) return "#22C55E";
+            if(r.includes("노랑")) return "#EAB308";
+            return null;
+          })(t.role||"");
+          const dot=D({width:"7px",height:"7px",borderRadius:"50%",flexShrink:"0",
+            background:isAtt?(teamColor||"#94A3B8"):"#CBD5E1"});
+          const nameEl=SP({fontWeight:"600",fontSize:"13px",color:"#1E293B",flex:"1"},t.name);
+          const roleEl=SP({fontSize:"11px",color:"#94A3B8",marginRight:"6px"},t.role||"");
+          const btnColor=teamColor||"#94A3B8";
+          const btnBg=teamColor?(isAtt?teamColor+"22":"#F8FAFC"):(isAtt?"#F1F5F9":"#F8FAFC");
+          const attBtn=B({padding:"4px 12px",borderRadius:"7px",border:"1.5px solid",
+            fontSize:"12px",fontWeight:"700",cursor:canCheck?"pointer":"default",
+            borderColor:isAtt?btnColor:"#E2E8F0",
+            background:btnBg,
+            color:isAtt?btnColor:"#CBD5E1"},
+            async()=>{
+              if(!canCheck) return;
+              const patch={};patch[`teachers.${t.id}`]=!isAtt;
+              await updateDoc(doc(db,"awana",`week_${S.week}`),patch);
+            },isAtt?"출석":"결석"
+          );
+          row.appendChild(dot);row.appendChild(nameEl);row.appendChild(roleEl);row.appendChild(attBtn);
+          teacherList.appendChild(row);
+        });
+      }
+      return D({},header,teacherList);
     })(),
     teamSection
   );
@@ -3440,7 +3606,7 @@ function buildScheduleEditor(){
     const wkTd=document.createElement("td");
     wkTd.textContent=w===0?"0주차":w+"주차";
     Object.assign(wkTd.style,{padding:"6px 8px",fontWeight:"700",fontSize:"12px",
-      color:"#475569",textAlign:"center",whiteSpace:"nowrap",
+      color:"#1E293B",textAlign:"center",whiteSpace:"nowrap",
       borderRight:"1px solid #F1F5F9",background:"#F8FAFC"});
     tr.appendChild(wkTd);
 
@@ -3666,12 +3832,12 @@ function buildAwardsTab(){
       const isAdminRole=S.role==="admin";
       const bonusEl=isAdminRole?D({display:"flex",alignItems:"center",gap:"4px"},
         B({background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:"6px",
-          padding:"2px 8px",fontSize:"14px",fontWeight:"700",cursor:"pointer",color:"#475569"},
+          padding:"2px 8px",fontSize:"14px",fontWeight:"700",cursor:"pointer",color:"#1E293B"},
           async()=>await setBonus(t.id,bonus-50),"−"),
         bonus>0?SP({fontSize:"13px",fontWeight:"700",color:"#2563EB",minWidth:"36px",textAlign:"center"},
           "+"+bonus.toLocaleString()):SP({fontSize:"13px",color:"#CBD5E1",minWidth:"36px",textAlign:"center"},"0"),
         B({background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:"6px",
-          padding:"2px 8px",fontSize:"14px",fontWeight:"700",cursor:"pointer",color:"#475569"},
+          padding:"2px 8px",fontSize:"14px",fontWeight:"700",cursor:"pointer",color:"#1E293B"},
           async()=>await setBonus(t.id,bonus+50),"+")
       ):bonus>0?SP({fontSize:"13px",fontWeight:"700",color:"#2563EB"},"+"+bonus.toLocaleString()):null;
       card.appendChild(D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
@@ -3754,7 +3920,7 @@ function buildAwardsTab(){
               hbTag.textContent=s.handbook;
               nameEl.appendChild(dot);nameEl.appendChild(nm);nameEl.appendChild(hbTag);
               const signsEl=document.createElement("span");
-              signsEl.style.cssText="font-size:13px;font-weight:700;color:"+(!attended?"#CBD5E1":"#475569");
+              signsEl.style.cssText="font-size:13px;font-weight:700;color:"+(!attended?"#CBD5E1":"#1E293B");
               signsEl.textContent=_isAdminForPopup?((!attended||signs===0)?"-개":"암송 "+Math.round(signs*10)/10+"개"):"";
               row.appendChild(nameEl);row.appendChild(signsEl);
               sheet.appendChild(row);
