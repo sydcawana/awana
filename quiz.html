@@ -3378,6 +3378,7 @@ function QuizGenerator() {
         .app-root { min-height: 100vh; background: #DEDBD3; font-family: 'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif; color:#1c1b18; }
         .topbar { background:#22314e; color:#f5f3ec; padding:14px 20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
         .topbar h1 { font-size:17px; font-weight:700; margin:0; letter-spacing:0.02em; }
+        .topbar .subtitle { font-size:13px; font-weight:700; color:#c7d0e0; letter-spacing:0.02em; }
         .topbar .badge { font-size:11px; border:1px solid rgba(245,243,236,.45); padding:2px 8px; border-radius:2px; letter-spacing:.14em; }
         .controls { background:#f2f0e9; border-bottom:2px solid #22314e; padding:12px 20px; display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }
         .ctrl label { display:block; font-size:11px; font-weight:700; color:#5b5952; margin-bottom:4px; letter-spacing:.06em; }
@@ -3407,10 +3408,10 @@ function QuizGenerator() {
         .name-grid .k { background:#efece2; font-weight:700; text-align:center; }
         .section-title { font-family:'Nanum Myeongjo','Batang',serif; font-size:17px; font-weight:800; margin:34px 0 6px; padding-bottom:5px; border-bottom:2px solid #1c1b18; display:flex; justify-content:space-between; align-items:baseline; }
         .section-title .cnt { font-size:12px; font-family:inherit; color:#5b5952; font-weight:400; }
-        .item { padding:11px 2px 12px; border-bottom:1px dotted #b9b5a8; font-size:13.5px; line-height:1.75; }
+        .item { padding:13px 2px 18px; border-bottom:1px dotted #b9b5a8; font-size:13.5px; line-height:1.9; }
         .item .no { font-weight:800; margin-right:4px; }
         .item .tag { font-size:11px; color:#5b5952; margin-right:6px; border:1px solid #c9c5b8; padding:0 5px; border-radius:2px; vertical-align:1px; }
-        .item .sub { margin:3px 0 0 22px; color:#33322d; }
+        .item .sub { margin:12px 0 0 22px; color:#33322d; line-height:2.1; }
         .item .ans { margin:4px 0 0 22px; color:#a02c2c; font-weight:600; }
         .item .meta { margin:2px 0 0 22px; font-size:11px; color:#8b887d; }
         .match2 { display:grid; grid-template-columns:1fr 1fr; gap:6px 28px; margin:8px 0 4px 22px; }
@@ -3422,7 +3423,7 @@ function QuizGenerator() {
         .chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; border:1.5px solid #b9b5a8; border-radius:2px; padding:6px 9px; cursor:pointer; background:#fff; color:#5b5952; }
         .chip.on { border-color:#22314e; background:#e7ebf2; color:#22314e; }
         .chip input { margin:0; accent-color:#22314e; }
-        .blanks { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin:8px 0 2px 22px; }
+        .blanks { display:grid; grid-template-columns:1fr 1fr; gap:14px 24px; margin:14px 0 4px 22px; }
         .blanks .bl { display:flex; align-items:baseline; gap:6px; font-size:13px; }
         .blanks .bl .n { font-weight:700; min-width:26px; }
         .blanks .bl .line { flex:1; border-bottom:1px solid #b9b5a8; min-height:18px; }
@@ -3433,14 +3434,21 @@ function QuizGenerator() {
           .topbar, .controls, .printhint { display:none !important; }
           .app-root { background:#fff; }
           .deck { max-width:none; margin:0; padding:0; }
-          .sheet { box-shadow:none; padding:0; }
+          .sheet { box-shadow:none; padding:0; background:#fff; }
           .item { break-inside:avoid; }
+          .quiz-section.pagebreak { break-before:page; page-break-before:always; }
+          .section-title { break-after:avoid; }
+          /* 흑백 인쇄: 배경 채색 제거, 테두리만 유지 */
+          .name-grid .k, .reserve-band, .chip.on, .item .tag { background:#fff !important; color:#000 !important; }
+          .mode.answer { color:#000 !important; }
         }
       `), /*#__PURE__*/React.createElement("header", {
     className: "topbar"
   }, /*#__PURE__*/React.createElement("h1", null, "Awana 성경퀴즈 문제 생성기"), /*#__PURE__*/React.createElement("span", {
+    className: "subtitle"
+  }, "<어와나 퀴즈대회 대비>"), /*#__PURE__*/React.createElement("span", {
     className: "badge"
-  }, "어와나 퀴즈대회 대비")), /*#__PURE__*/React.createElement("div", {
+  }, "SYDC 대비")), /*#__PURE__*/React.createElement("div", {
     className: "controls"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ctrl"
@@ -3518,13 +3526,14 @@ function QuizGenerator() {
     className: "k"
   }, "학년"), /*#__PURE__*/React.createElement("div", null), /*#__PURE__*/React.createElement("div", {
     className: "k"
-  }, "이름"), /*#__PURE__*/React.createElement("div", null)), sections.map(sec => /*#__PURE__*/React.createElement("section", {
-    key: sec.type
+  }, "이름"), /*#__PURE__*/React.createElement("div", null)), sections.map((sec, si) => /*#__PURE__*/React.createElement("section", {
+    key: sec.type,
+    className: `quiz-section ${si > 0 ? "pagebreak" : ""}`
   }, /*#__PURE__*/React.createElement("h2", {
     className: "section-title"
   }, /*#__PURE__*/React.createElement("span", null, "[", sec.type, "] ", sec.label.split(" (")[0]), /*#__PURE__*/React.createElement("span", {
     className: "cnt"
-  }, (sec.label.match(/\((.+)\)/) || [])[1] || "")), sec.items.map((it, i) => /*#__PURE__*/React.createElement(Item, {
+  }, sec.label.match(/\((.+)\)/)?.[1])), sec.items.map((it, i) => /*#__PURE__*/React.createElement(Item, {
     key: i,
     no: `${i + 1}`,
     it: it,
