@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>T&T 성경퀴즈 · 챌린지2</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Lora', 'Nanum Myeongjo', serif; }
+  #status { padding: 40px; text-align: center; color: #7d5411; font-size: 16px; line-height: 1.7; }
+  #status .err { color:#a02c2c; text-align:left; white-space:pre-wrap; font-size:13px; background:#f6efe0; border:1px solid #d8c69a; padding:12px; border-radius:8px; margin-top:16px; }
+  .homelink { position:fixed; top:12px; left:12px; z-index:99; background:#fbfaf8; border:1.5px solid #b68235; color:#7d5411; border-radius:6px; padding:7px 14px; font-size:13px; font-weight:700; text-decoration:none; box-shadow:0 2px 8px rgba(120,90,20,.15); font-family:'Lora','Nanum Myeongjo',serif; }
+  .homelink:hover { background:#f6efe0; }
+  @media print { .homelink { display:none !important; } }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+<a class="homelink" href="index.html">← 메뉴</a>
+<div id="root"><div id="status">불러오는 중…</div></div>
+<script>
+  window.addEventListener("load", function () {
+    var s = document.getElementById("status");
+    if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+      if (s) s.innerHTML = 'React 파일을 불러오지 못했습니다.<div class="err">인터넷 연결을 확인해 주세요.</div>';
+    }
+  });
+</script>
+<script>
+try {
+const {
+  useState,
+  useMemo
+} = React;
+
+/*
+ * ════════════════════════════════════════════════════════════════════════
+ *  Awana 성경퀴즈 문제 생성기  —  UI 개선용 버전 (Claude Design)
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ *  ▣ 이 파일을 Claude Design에서 열 때 지켜주세요:
+ *
+ *  ✅ 개선해도 되는 부분 (UI / 디자인):
+ *     · [STYLE] 로 표시된 <style> 블록 안의 CSS  — 색, 폰트, 여백, 레이아웃
+ *     · [UI] 로 표시된 JSX 마크업 (컨트롤 바, 시험지 헤더, 버튼, 체크박스 배치)
+ *     · [UI] Item / 시험지 렌더링의 겉모습
+ *     → "더 세련되게", "더 시험지답게", "컨트롤 바 정리" 등 자유롭게 개선 OK
+ *
+ *  ⛔ 절대 바꾸면 안 되는 부분 (로직 — 바꾸면 문제 생성이 깨집니다):
+ *     · [DATA]  HANDBOOKS 데이터 (성경 구절·어휘 원본)
+ *     · [ENGINE] 유틸 / Picker / MC / SP / WR / CLOZE / HARD / buildSet
+ *     · useState/useMemo 훅의 "동작"과 buildSet 호출 방식
+ *     · 각 문제 객체의 필드명 (q, a, tag, src, blanks, match2col, no)
+ *       → 화면에 뿌리는 값의 "이름"은 그대로 두고, 감싸는 마크업·스타일만 바꾸세요.
+ *
+ *  ▣ 안전 수칙:
+ *     · JSX 안에서 값을 꺼내 쓰는 표현식 { it.q }, { sec.items } 등은 유지.
+ *     · className 이름은 바꿔도 되지만, 바꾸면 대응하는 CSS도 같이 바꿔야 함.
+ *     · 새 컨트롤(정렬·테마 토글 등) UI는 추가해도 되나, 그 값이 buildSet의
+ *       동작을 바꾸지 않도록 (순수 표시용으로) 하세요.
+ *
+ *  ▣ 개선이 끝나면:
+ *     이 .jsx 파일을 그대로 저장해서 원래 작업하던 곳으로 가져가면,
+ *     GitHub Pages 배포용 index.html 로 다시 빌드해 드립니다.
+ * ════════════════════════════════════════════════════════════════════════
+ */
+
+// ⛔ [DATA] 성경 구절·어휘 원본 데이터 — 절대 수정하지 마세요
+// 데이터는 data/ 폴더의 CSV에서 불러옵니다 (loadHandbook 참조)
+let HANDBOOKS = {};
+let HANDBOOK_ORDER = [];
+
+// ==================== CSV 파서 ====================
+function parseCSV(text) {
+  const rows = [];
+  let row = [],
+    field = "",
+    inQuotes = false;
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i],
+      next = text[i + 1];
+    if (inQuotes) {
+      if (c === '"' && next === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') {
+        inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        row.push(field);
+        field = "";
+      } else if (c === "\r") {/* skip */} else if (c === "\n") {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = "";
+      } else {
+        field += c;
+      }
+    }
+  }
+  if (field.length || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  if (!rows.length) return [];
+  const header = rows[0];
+  return rows.slice(1).filter(r => r.some(c => c !== "")).map(r => {
+    const o = {};
+    header.forEach((h, i) => {
+      o[h] = r[i] !== undefined ? r[i] : "";
+    });
+    return o;
+  });
+}
+
+// T&T 한 핸드북의 CSV 2종(본문·어휘)을 불러와 구조화
+async function loadHandbook(slug, displayName) {
+  const base = "data/tnt_" + slug + "_";
+  const [vText, wText] = await Promise.all([fetch(base + "verses.csv").then(r => r.text()), fetch(base + "words.csv").then(r => r.text())]);
+  const rows = parseCSV(vText).map(r => ({
+    ID: r.ID,
+    질문번호: parseInt(r.질문번호, 10),
+    질문: r.질문,
+    답번호: parseInt(r.답번호, 10),
+    답: r.답,
+    책: r.책,
+    장절: r.장절,
+    말씀: r.말씀,
+    키워드: (r.핵심단어 || "").split(",").map(s => s.trim()).filter(Boolean)
+  }));
+  const vocabs = parseCSV(wText).map(r => ({
+    ID: r.ID,
+    말씀ID: r.말씀ID || null,
+    용어: r.용어,
+    정의: r.정의
+  }));
+  return {
+    rows,
+    vocabs
+  };
+}
+
+// ⛔⛔⛔ [ENGINE] 아래부터 buildSet 끝까지는 문제 생성 로직입니다 ⛔⛔⛔
+// ⛔ 이 영역(유틸·Picker·MC·SP·WR·CLOZE·HARD·buildSet)은 수정하지 마세요.
+// ⛔ UI에서 쓰는 값(q, a, tag, src, blanks, match2col)의 이름이 여기서 정해집니다.
+
+// ==================== [ENGINE] 유틸 ====================
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = a + 0x6d2b79f5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const makeRng = seed => {
+  const rand = mulberry32(seed);
+  return {
+    rand,
+    int: n => Math.floor(rand() * n),
+    choice: arr => arr[Math.floor(rand() * arr.length)],
+    sample: (arr, n) => {
+      const c = [...arr];
+      for (let i = c.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [c[i], c[j]] = [c[j], c[i]];
+      }
+      return c.slice(0, n);
+    },
+    shuffle: arr => {
+      const c = [...arr];
+      for (let i = c.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [c[i], c[j]] = [c[j], c[i]];
+      }
+      return c;
+    }
+  };
+};
+const refKo = (book, ref) => {
+  const unit = book === "시편" ? "편" : "장";
+  if (!ref.includes(":")) return `${book} ${ref}`;
+  const [ch, vs] = ref.split(/:(.+)/);
+  return `${book} ${ch}${unit} ${vs.trim()}절`;
+};
+const rowRef = r => refKo(r.책, r.장절);
+const splitVerse = text => {
+  const w = text.split(" ");
+  const mid = Math.max(1, Math.floor(w.length / 2));
+  return [w.slice(0, mid).join(" "), w.slice(mid).join(" ")];
+};
+const blankText = (text, kws, hole = "(이것)") => {
+  let out = text;
+  for (const kw of kws) out = out.replace(kw, hole);
+  return out;
+};
+
+// 핵심단어를 (1)(2)... 번호로 치환하고, 하단 답칸 데이터를 함께 반환
+const numberedBlanks = (text, blanks) => {
+  // blanks: [{surface}] 순서대로 본문에서 치환
+  let out = text;
+  const answers = [];
+  blanks.forEach((b, i) => {
+    const n = i + 1;
+    if (out.includes(b.surface)) {
+      out = out.replace(b.surface, `(${n})`);
+      answers.push({
+        no: n,
+        text: b.answer !== undefined ? b.answer : b.surface
+      });
+    }
+  });
+  return {
+    text: out,
+    answers
+  };
+};
+
+// ==================== 선택 엔진 ====================
+class Picker {
+  constructor(rows, vocabs, rng, allRows, allVocabs) {
+    this.rows = rows;
+    this.vocabs = vocabs;
+    this.rng = rng;
+    // 오답/보기 후보용 전체 풀 (단원 필터와 무관하게 다양성 확보)
+    this.allRows = allRows || rows;
+    this.allVocabs = allVocabs || vocabs;
+    this.usedIds = new Set();
+    this.usedVocab = new Set();
+    this.qCount = {};
+    this.vocabLinked = vocabs.length > 0 && vocabs.every(v => v.말씀ID);
+  }
+  pickRow(cond) {
+    let cands = this.rows.filter(r => !this.usedIds.has(r.ID) && (!cond || cond(r)));
+    if (!cands.length) cands = this.rows.filter(r => !cond || cond(r));
+    if (!cands.length) cands = this.rows.filter(r => !this.usedIds.has(r.ID)); // 조건 무시
+    if (!cands.length) cands = this.rows; // 최종: 무엇이든
+    const least = Math.min(...cands.map(r => this.qCount[r.질문번호] || 0));
+    cands = cands.filter(r => (this.qCount[r.질문번호] || 0) === least);
+    const r = this.rng.choice(cands);
+    this.usedIds.add(r.ID);
+    this.qCount[r.질문번호] = (this.qCount[r.질문번호] || 0) + 1;
+    return r;
+  }
+  pickVocab() {
+    let cands = this.vocabs.filter(v => !this.usedVocab.has(v.ID));
+    if (!cands.length) cands = this.vocabs;
+    const v = this.rng.choice(cands);
+    this.usedVocab.add(v.ID);
+    return v;
+  }
+  rowById(id) {
+    return this.allRows.find(r => r.ID === id);
+  }
+  answerRows(r) {
+    return this.rows.filter(x => x.질문번호 === r.질문번호 && x.답번호 === r.답번호);
+  }
+  otherRows(r, n, sameQ = false) {
+    // 오답 후보는 전체 풀에서 (단원을 좁혀도 보기 다양성 유지)
+    let pool = this.allRows.filter(x => x.ID !== r.ID && !(x.질문번호 === r.질문번호 && x.답번호 === r.답번호));
+    if (sameQ) {
+      const sq = pool.filter(x => x.질문번호 === r.질문번호);
+      if (sq.length >= n) pool = sq;
+    }
+    const seen = new Set();
+    const out = [];
+    for (const x of this.rng.shuffle(pool)) {
+      const key = `${x.질문번호}-${x.답번호}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(x);
+      }
+      if (out.length === n) break;
+    }
+    return out;
+  }
+}
+const mcOptions = (rng, correct, distractors) => {
+  const opts = rng.shuffle([correct, ...distractors]);
+  const labels = "ABC";
+  return {
+    lines: opts.map((o, i) => `${labels[i]}) ${o}`),
+    ans: labels[opts.indexOf(correct)]
+  };
+};
+const trimDot = s => s.replace(/\.$/, "");
+
+// ==================== 객관식 ====================
+const MC = {
+  themeQuestion(p) {
+    const r = p.pickRow();
+    const refs = p.answerRows(r).map(rowRef).join(", ");
+    const qs = [...new Set(p.rows.map(x => x.질문))];
+    const d = p.rng.sample(qs.filter(q => q !== r.질문), 2);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, r.질문, d);
+    return {
+      tag: "주제질문 찾기",
+      q: [`[핸드북의 주제를 묻는 문제입니다.] '${refs}'는 하나의 답을 뒷받침합니다. 이 답에 대한 주제 질문은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans} — ${r.질문}`],
+      src: `${r.ID}`
+    };
+  },
+  completeVerse(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 10);
+    const back = splitVerse(r.말씀)[1];
+    const d = p.otherRows(r, 2).map(x => splitVerse(x.말씀)[1]);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, back, d);
+    return {
+      tag: "뒷부분 완성",
+      q: [`[성경구절의 뒷부분을 완성하는 문제입니다.] '${rowRef(r)}'에 나오는 말씀은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans}`],
+      src: `${r.ID} ${rowRef(r)}`
+    };
+  },
+  matchPair(p) {
+    const r = p.pickRow();
+    const [o1, o2] = p.otherRows(r, 2);
+    const correct = `${trimDot(r.답)} – ${rowRef(r)}`;
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, correct, [`${trimDot(o1.답)} – ${rowRef(o2)}`, `${trimDot(o2.답)} – ${rowRef(o1)}`]);
+    return {
+      tag: "답–출처 연결",
+      q: ["[성경구절의 출처를 묻는 문제입니다.] 주제질문에 대한 대답과 출처가 알맞게 연결된 것은 무엇인가요?", ...lines],
+      a: [`정답) ${ans} — ${correct}`],
+      src: r.ID
+    };
+  },
+  wordMeaning(p) {
+    const v = p.pickVocab();
+    const d = p.rng.sample(p.allVocabs.filter(x => x.ID !== v.ID), 2).map(x => x.정의);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, v.정의, d);
+    const r = v.말씀ID ? p.rowById(v.말씀ID) : null;
+    // 구절 본문을 보여주고, 그 안의 단어 뜻을 물음 (출처는 묻지 않음)
+    if (r) {
+      return {
+        tag: "단어 의미",
+        q: [`[다음 말씀을 읽고, '${v.용어}'의 의미로 알맞은 것을 고르세요.]`, `"${r.말씀}"`, ...lines],
+        a: [`정답) ${ans} — ${v.정의}`],
+        src: v.말씀ID
+      };
+    }
+    return {
+      tag: "단어 의미",
+      q: [`['${v.용어}'의 의미로 알맞은 것을 고르세요.]`, ...lines],
+      a: [`정답) ${ans} — ${v.정의}`],
+      src: v.ID
+    };
+  },
+  findAnswer(p) {
+    const r = p.pickRow();
+    const d = p.otherRows(r, 2, true).map(x => x.답);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, r.답, d);
+    return {
+      tag: "답 찾기",
+      q: [`[핸드북 주제질문에 대한 답을 묻는 문제입니다.] "${r.질문}"에 대한 '${rowRef(r)}'은 하나의 답을 뒷받침합니다. 이 주제질문에 대한 답은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans} — ${r.답}`],
+      src: `${r.ID} ${rowRef(r)}`
+    };
+  },
+  findSource(p) {
+    const r = p.pickRow();
+    const d = p.otherRows(r, 2).map(rowRef);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, rowRef(r), d);
+    return {
+      tag: "출처 찾기",
+      q: [`[성경구절의 출처를 묻는 문제입니다.] "${trimDot(r.답)}"를 뒷받침해 주는 성경구절은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans} — ${rowRef(r)}`],
+      src: r.ID
+    };
+  },
+  findSourceByStart(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 6);
+    const start = r.말씀.split(" ").slice(0, 3).join(" ");
+    const d = p.otherRows(r, 2).map(rowRef);
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, rowRef(r), d);
+    return {
+      tag: "출처 찾기(시작구절)",
+      q: [`[성경구절의 출처를 묻는 문제입니다.] "${r.질문}"에 대한 하나의 답을 뒷받침하며 '${start}'…로 시작하는 성경구절은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans} — ${rowRef(r)}`],
+      src: r.ID
+    };
+  },
+  memorizeOrder(p) {
+    const r = p.pickRow(x => x.키워드.length >= 3);
+    const kws = r.키워드.slice(0, 4);
+    const correct = kws.join(", ");
+    const perms = new Set();
+    let guard = 0;
+    while (perms.size < 2 && guard++ < 40) {
+      const s = p.rng.shuffle(kws).join(", ");
+      if (s !== correct) perms.add(s);
+    }
+    const {
+      lines,
+      ans
+    } = mcOptions(p.rng, correct, [...perms]);
+    return {
+      tag: "암송 배열",
+      q: [`[성경구절 암송 문제입니다.] 다음의 성경구절은 '${trimDot(r.답)}'를 뒷받침하는 성경구절입니다. 다음의 (이것)에 들어갈 단어를 순서대로 알맞게 배열한 것은 무엇인가요?`, `(${rowRef(r)}) "${blankText(r.말씀, kws)}"`, ...lines],
+      a: [`정답) ${ans} — ${correct}`],
+      src: `${r.ID} ${rowRef(r)}`
+    };
+  }
+};
+
+// ==================== 스피드 ====================
+const SP = {
+  blankWord(p) {
+    const r = p.pickRow(x => x.키워드.length >= 1);
+    const n = Math.min(2, r.키워드.length);
+    const kws = r.키워드.slice(0, n);
+    return {
+      tag: "빈칸 단어",
+      q: [`[다음 중 이것은 무엇인가요? 이것은 ${n}개 입니다.] '${blankText(r.말씀, kws)}'`],
+      a: [`정답) ${kws.join(", ")}`],
+      src: `${r.ID} ${rowRef(r)}`
+    };
+  },
+  answerToSource(p) {
+    const r = p.pickRow();
+    const refs = p.answerRows(r).map(rowRef).join(" / ");
+    return {
+      tag: "답→출처",
+      q: [`'${trimDot(r.답)}'라는 답을 뒷받침하는 성경 구절의 출처를 말하세요.`],
+      a: [`정답) ${refs}`],
+      src: r.ID
+    };
+  },
+  sourceToQuestion(p) {
+    const r = p.pickRow();
+    return {
+      tag: "출처→주제질문",
+      q: [`'${rowRef(r)}' 말씀이 뒷받침하는 주제 질문은 무엇인가요?`],
+      a: [`정답) ${r.질문}`],
+      src: r.ID
+    };
+  },
+  wordMeaning(p) {
+    const v = p.pickVocab();
+    const r = v.말씀ID ? p.rowById(v.말씀ID) : null;
+    if (r) {
+      return {
+        tag: "어휘 뜻",
+        q: [`다음 말씀을 읽고 '${v.용어}'의 의미를 말하세요. — "${r.말씀}"`],
+        a: [`정답) ${v.정의}`],
+        src: v.말씀ID
+      };
+    }
+    return {
+      tag: "어휘 뜻",
+      q: [`'${v.용어}'의 의미를 말하세요.`],
+      a: [`정답) ${v.정의}`],
+      src: v.ID
+    };
+  },
+  sourceAndRecite(p) {
+    const r = p.pickRow(x => x.말씀.length <= 90);
+    return {
+      tag: "답→출처+암송",
+      q: [`'${trimDot(r.답)}'라는 답을 뒷받침하는 성경 구절의 출처를 말하고 암송하세요.`],
+      a: [`정답) ${rowRef(r)} / ${r.말씀}`],
+      src: r.ID
+    };
+  },
+  questionSourceToAnswer(p) {
+    const r = p.pickRow();
+    return {
+      tag: "질문+출처→답",
+      q: [`'${r.질문}'라는 주제 질문에 대한 답 중에서 '${rowRef(r)}' 말씀이 뒷받침하는 답은 무엇인가요?`],
+      a: [`정답) ${r.답}`],
+      src: r.ID
+    };
+  },
+  quoteToSource(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 10);
+    const w = r.말씀.split(" ");
+    const start = Math.floor(w.length / 3);
+    const quote = w.slice(start, start + 4 + p.rng.int(5)).join(" ");
+    return {
+      tag: "인용→출처",
+      q: [`'${r.질문}'라는 주제 질문에 대한 답 중 하나를 뒷받침하며 '${quote}'라는 말씀이 들어 있는 성경구절의 출처는 무엇인가요?`],
+      a: [`정답) ${rowRef(r)}`],
+      src: r.ID
+    };
+  },
+  continueRecite(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 10);
+    const [front, back] = splitVerse(r.말씀);
+    return {
+      tag: "이어 암송",
+      q: [`'${rowRef(r)}' '${front}' 다음에 이어지는 구절을 암송하세요.`],
+      a: [`정답) ${back}`],
+      src: r.ID
+    };
+  },
+  fullRecite(p) {
+    const r = p.pickRow(x => x.말씀.length <= 80);
+    return {
+      tag: "통암송",
+      q: [`'${rowRef(r)}'을 암송하세요.`],
+      a: [`정답) ${r.말씀}`],
+      src: r.ID
+    };
+  }
+};
+
+// ==================== 필기 ====================
+const WR = {
+  fillBlanks(p) {
+    const r = p.pickRow(x => x.키워드.length >= 2);
+    return {
+      tag: "빈칸 구절 완성",
+      q: [`다음 (        ) 안을 알맞은 말로 채워 구절을 완성하세요. [${rowRef(r)}]`, `"${blankText(r.말씀, r.키워드, "(        )")}"`],
+      a: [`정답) ${r.키워드.join(", ")}`],
+      src: r.ID
+    };
+  },
+  writeSourceVerse(p) {
+    const r = p.pickRow(x => x.말씀.length <= 90);
+    return {
+      tag: "답→출처+구절 쓰기",
+      q: [`'${trimDot(r.답)}'라는 사실을 뒷받침하는 성경구절을 쓰세요. (성경책의 이름과 장, 절, 구절을 모두 적어야 합니다.)`, "(          ) (      )장 (      )절", "구절: ＿＿＿＿＿＿＿＿＿＿＿＿"],
+      a: [`정답) ${rowRef(r)} / ${r.말씀}`],
+      src: r.ID
+    };
+  },
+  ox(p, makeTrue) {
+    if (makeTrue && p.rng.rand() < 0.5 && p.vocabs.length) {
+      const v = p.pickVocab();
+      return {
+        tag: "O/X",
+        q: [`다음 문장이 맞으면 O, 틀리면 X 하세요. — '${v.용어}'은(는) '${v.정의}'라는 뜻이다. (    )`],
+        a: ["정답) O"],
+        src: v.말씀ID || v.ID
+      };
+    }
+    const r = p.pickRow();
+    if (makeTrue) {
+      return {
+        tag: "O/X",
+        q: [`다음 문장이 맞으면 O, 틀리면 X 하세요. — '${rowRef(r)}' 말씀은 '${trimDot(r.답)}'라는 답을 뒷받침한다. (    )`],
+        a: ["정답) O"],
+        src: r.ID
+      };
+    }
+    const wrong = p.otherRows(r, 1)[0];
+    return {
+      tag: "O/X",
+      q: [`다음 문장이 맞으면 O, 틀리면 X 하세요. — '${rowRef(wrong)}' 말씀은 '${trimDot(r.답)}'라는 답을 뒷받침한다. (    )`],
+      a: [`정답) X (올바른 출처: ${rowRef(r)})`],
+      src: r.ID
+    };
+  },
+  completeBack(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 10);
+    const [front, back] = splitVerse(r.말씀);
+    return {
+      tag: "뒷부분 이어 쓰기",
+      q: [`다음 성경구절의 뒷부분을 완성하세요. (${rowRef(r)})`, `"${front} ＿＿＿＿＿＿＿＿＿＿＿＿"`],
+      a: [`정답) ${back}`],
+      src: r.ID
+    };
+  },
+  writeQA(p) {
+    const r = p.pickRow();
+    return {
+      tag: "Q/A 쓰기",
+      q: [`여러분이 암송한 '${rowRef(r)}'은 어떤 질문에 대한 어떤 답을 뒷받침하는지 쓰세요.`, "(Q / 주제질문) ＿＿＿＿＿＿", "(A / 답) ＿＿＿＿＿＿"],
+      a: [`정답) Q: ${r.질문} / A: ${r.답}`],
+      src: r.ID
+    };
+  },
+  matchWords(p) {
+    const vs = [];
+    const seen = new Set();
+    let guard = 0;
+    while (vs.length < 4 && guard++ < 60) {
+      const v = p.pickVocab();
+      if (v && !seen.has(v.ID)) {
+        seen.add(v.ID);
+        vs.push(v);
+      }
+    }
+    // 단원을 좁혀 어휘가 4개 미만이면 전체 어휘에서 보충
+    if (vs.length < 4) {
+      for (const v of p.rng.shuffle(p.allVocabs)) {
+        if (!seen.has(v.ID)) {
+          seen.add(v.ID);
+          vs.push(v);
+        }
+        if (vs.length === 4) break;
+      }
+    }
+    const labels = "가나다라";
+    const order = p.rng.shuffle([0, 1, 2, 3]);
+    // 좌열: 용어(1~4), 우열: 정의(가~라, 섞인 순서)
+    const left = vs.map((v, i) => ({
+      no: i + 1,
+      text: v.용어
+    }));
+    const right = order.map((di, j) => ({
+      label: labels[j],
+      text: vs[di].정의
+    }));
+    const ans = order.map((di, j) => `${di + 1}-${labels[j]}`).join(" / ");
+    return {
+      tag: "단어–의미 연결",
+      q: ["여러분이 배운 성경단어와 의미를 바르게 연결하세요."],
+      match2col: {
+        left,
+        right
+      },
+      // UI에서 2열로 렌더링
+      a: [`정답) ${ans}`],
+      src: vs.map(v => v.말씀ID || v.ID).join(",")
+    };
+  },
+  wordMeaningWrite(p) {
+    const v = p.pickVocab();
+    const r = v.말씀ID ? p.rowById(v.말씀ID) : null;
+    if (r) {
+      return {
+        tag: "어휘 뜻 쓰기",
+        q: [`다음 말씀을 읽고 '${v.용어}'의 뜻을 쓰세요.`, `"${r.말씀}"`, `'${v.용어}'의 뜻 – ＿＿＿＿＿＿`],
+        a: [`정답) ${v.정의}`],
+        src: v.말씀ID
+      };
+    }
+    return {
+      tag: "어휘 뜻 쓰기",
+      q: [`핸드북에서 배운 '${v.용어}'의 뜻을 쓰세요.`, `'${v.용어}'의 뜻 – ＿＿＿＿＿＿`],
+      a: [`정답) ${v.정의}`],
+      src: v.ID
+    };
+  },
+  commonWord(p) {
+    const pairs = [];
+    for (let i = 0; i < p.rows.length; i++) for (let j = i + 1; j < p.rows.length; j++) {
+      const a = p.rows[i],
+        b = p.rows[j];
+      if (a.질문번호 === b.질문번호 && a.답번호 === b.답번호) continue;
+      const common = a.키워드.filter(k => b.키워드.includes(k));
+      if (common.length) pairs.push([a, b, common[0]]);
+    }
+    if (!pairs.length) return WR.fillBlanks(p); // 공통 낱말 없으면 대체
+    const [a, b, word] = p.rng.choice(pairs);
+    const others = [...new Set(p.rows.flatMap(r => r.키워드))].filter(k => k !== word);
+    const bank = p.rng.shuffle([...p.rng.sample(others, Math.min(6, others.length)), word]);
+    return {
+      tag: "공통 낱말",
+      q: ["주어진 성경구절에 공통으로 들어있는 낱말을 <보기>에서 골라서 쓰세요.", `<성경구절> ${rowRef(a)}, ${rowRef(b)}`, `<보기> ${bank.join("   ")}`, "답: (            )"],
+      a: [`정답) ${word}`],
+      src: `${a.ID},${b.ID}`
+    };
+  },
+  fullRecite(p) {
+    const r = p.pickRow(x => x.말씀.length <= 70);
+    return {
+      tag: "통암송 쓰기",
+      q: [`'${rowRef(r)}'을 암송하여 쓰세요.`, "＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿"],
+      a: [`정답) ${r.말씀}`],
+      src: r.ID
+    };
+  },
+  shortAnswer(p) {
+    const r = p.pickRow();
+    return {
+      tag: "답 단답 쓰기",
+      q: [`'${r.질문}'에 대한 답 중에서 '${rowRef(r)}' 말씀이 뒷받침하는 답을 쓰세요.`, "＿＿＿＿＿＿＿＿＿＿＿＿"],
+      a: [`정답) ${r.답}`],
+      src: r.ID
+    };
+  },
+  listAnswers(p) {
+    const r = p.pickRow();
+    const all = [...new Map(p.rows.filter(x => x.질문번호 === r.질문번호).map(x => [x.답번호, x.답])).entries()].sort((x, y) => x[0] - y[0]);
+    return {
+      tag: "답 나열",
+      q: [`핸드북에서 배운 '${r.질문}'의 질문에 대한 ${all.length}가지 답 중에서 4가지만 쓰세요. (순서 관계없고, 성경구절은 적지 않습니다.)`, "① ＿＿＿＿＿＿", "② ＿＿＿＿＿＿", "③ ＿＿＿＿＿＿", "④ ＿＿＿＿＿＿"],
+      a: [`정답) 아래 ${all.length}가지 중 4가지:`, ...all.map(([i, t]) => `${i}. ${t}`)],
+      src: `질문${r.질문번호}`
+    };
+  }
+};
+
+// ==================== 괄호 채우기 (3단계) ====================
+const FIXED_HOLE = "(______  ______)"; // 넉넉한 고정 빈칸 (글자수 힌트 없음)
+
+const CLOZE = {
+  // 1단계: 핵심단어만 번호 빈칸
+  level1(p) {
+    const r = p.pickRow(x => x.키워드.length >= 1);
+    const blanks = r.키워드.map(kw => ({
+      surface: kw,
+      answer: kw
+    }));
+    const {
+      text,
+      answers
+    } = numberedBlanks(r.말씀, blanks);
+    return {
+      tag: "괄호 1단계",
+      q: [`다음 (번호) 안에 알맞은 말을 아래에 쓰세요. [${rowRef(r)}]`, `"${text}"`],
+      blanks: answers,
+      a: [`정답) ${answers.map(x => `(${x.no}) ${x.text}`).join(" / ")}`],
+      src: r.ID
+    };
+  },
+  // 2단계: 구문을 곳곳에 번호 빈칸
+  level2(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 8);
+    const words = r.말씀.split(" ");
+    const out = [];
+    const answers = [];
+    let i = 0,
+      n = 0;
+    while (i < words.length) {
+      const keep = 2 + p.rng.int(2);
+      for (let k = 0; k < keep && i < words.length; k++, i++) out.push(words[i]);
+      if (i < words.length) {
+        const gap = 1 + p.rng.int(2);
+        const chunk = [];
+        for (let k = 0; k < gap && i < words.length; k++, i++) chunk.push(words[i]);
+        n += 1;
+        answers.push({
+          no: n,
+          text: chunk.join(" ")
+        });
+        out.push(`(${n})`);
+      }
+    }
+    return {
+      tag: "괄호 2단계",
+      q: [`다음 (번호) 안에 알맞은 말을 아래에 쓰세요. [${rowRef(r)}]`, `"${out.join(" ")}"`],
+      blanks: answers,
+      a: [`정답) ${answers.map(x => `(${x.no}) ${x.text}`).join(" / ")}`],
+      src: r.ID
+    };
+  },
+  // 3단계: 앞부분만 남기고 나머지를 번호 빈칸 여러 개
+  level3(p) {
+    const r = p.pickRow(x => x.말씀.split(" ").length >= 6);
+    const words = r.말씀.split(" ");
+    const keep = Math.min(3, Math.max(2, Math.floor(words.length / 4)));
+    const shown = words.slice(0, keep).join(" ");
+    const rest = words.slice(keep);
+    // 나머지를 3~4조각으로 나눠 번호 부여
+    const holes = Math.min(4, Math.max(2, Math.ceil(rest.length / 4)));
+    const per = Math.ceil(rest.length / holes);
+    const out = [shown];
+    const answers = [];
+    for (let h = 0; h < holes; h++) {
+      const chunk = rest.slice(h * per, (h + 1) * per);
+      if (!chunk.length) break;
+      answers.push({
+        no: h + 1,
+        text: chunk.join(" ")
+      });
+      out.push(`(${h + 1})`);
+    }
+    return {
+      tag: "괄호 3단계",
+      q: [`다음은 '${rowRef(r)}' 말씀의 앞부분입니다. (번호) 안을 아래에 채워 완성하세요.`, `"${out.join(" ")}"`],
+      blanks: answers,
+      a: [`정답) ${r.말씀}`],
+      src: r.ID
+    };
+  },
+  // 4단계: 출처만 주고 본문 전체 쓰기 (빈칸 하나, 힌트 없음)
+  level4(p) {
+    const r = p.pickRow();
+    return {
+      tag: "괄호 4단계",
+      q: [`'${rowRef(r)}' 말씀 전체를 (1)에 쓰세요. (출처만 보고 암송)`, `${rowRef(r)} → (1)`],
+      blanks: [{
+        no: 1,
+        text: r.말씀
+      }],
+      a: [`정답) ${r.말씀}`],
+      src: r.ID
+    };
+  }
+};
+// ==================== 고난도 (심화) ====================
+const HARD = {
+  // 출처 2~3개에 공통으로 들어가는 어휘 찾기
+  commonVocab(p) {
+    // 같은 용어가 여러 구절에 등장하는 경우를 찾음 (키워드 기준)
+    const byWord = {};
+    for (const r of p.rows) {
+      for (const kw of r.키워드) {
+        (byWord[kw] = byWord[kw] || []).push(r);
+      }
+    }
+    const cands = Object.entries(byWord).filter(([, rs]) => {
+      // 서로 다른 답에 속한 구절이 2개 이상
+      const keys = new Set(rs.map(r => `${r.질문번호}-${r.답번호}`));
+      return keys.size >= 2;
+    });
+    if (!cands.length) return HARD.oddOneOut(p);
+    const [word, rs] = p.rng.choice(cands);
+    // 서로 다른 답의 구절 2~3개 선택
+    const seen = new Set();
+    const picked = [];
+    for (const r of p.rng.shuffle(rs)) {
+      const key = `${r.질문번호}-${r.답번호}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        picked.push(r);
+      }
+      if (picked.length === (p.rng.rand() < 0.5 ? 2 : 3)) break;
+    }
+    const refs = picked.map(rowRef).join(", ");
+    return {
+      tag: "공통 어휘",
+      q: [`다음 성경구절들에 공통으로 들어가는 낱말은 무엇인가요? — ${refs}`],
+      a: [`정답) ${word}`],
+      src: picked.map(r => r.ID).join(",")
+    };
+  },
+  // 답 3개 중 다른 주제질문에 속한 하나 골라내기
+  oddOneOut(p) {
+    const r = p.pickRow();
+    const same = p.otherRows(r, 2, true).filter(x => x.질문번호 === r.질문번호);
+    const diff = p.rows.filter(x => x.질문번호 !== r.질문번호);
+    if (same.length < 2 || !diff.length) return HARD.keywordsToSource(p);
+    const odd = p.rng.choice(diff);
+    const opts = p.rng.shuffle([{
+      t: r.답,
+      odd: false
+    }, {
+      t: same[0].답,
+      odd: false
+    }, {
+      t: odd.답,
+      odd: true
+    }]);
+    const labels = "ABC";
+    const lines = opts.map((o, i) => `${labels[i]}) ${o.t}`);
+    const ans = labels[opts.findIndex(o => o.odd)];
+    return {
+      tag: "다른 주제 찾기",
+      q: [`다음 세 답 중, 나머지 둘과 다른 주제질문에 속한 답은 무엇인가요?`, ...lines],
+      a: [`정답) ${ans} — (주제: ${odd.질문})`],
+      src: `${r.ID},${same[0].ID},${odd.ID}`
+    };
+  },
+  // 핵심단어들만 나열 -> 어느 구절인지 출처 맞히기
+  keywordsToSource(p) {
+    const r = p.pickRow(x => x.키워드.length >= 2);
+    const kws = r.키워드.join(", ");
+    const distract = p.otherRows(r, 2).map(rowRef);
+    const opts = p.rng.shuffle([rowRef(r), ...distract]);
+    const labels = "ABC";
+    const lines = opts.map((o, i) => `${labels[i]}) ${o}`);
+    const ans = labels[opts.indexOf(rowRef(r))];
+    return {
+      tag: "핵심단어→출처",
+      q: [`다음 핵심 단어들이 모두 들어 있는 성경구절의 출처는? — [ ${kws} ]`, ...lines],
+      a: [`정답) ${ans} — ${rowRef(r)}`],
+      src: r.ID
+    };
+  },
+  // 여러 구절 앞부분 -> 어느 답을 뒷받침하는 그룹인지
+  versesToAnswer(p) {
+    // 말씀이 2개 이상인 답을 찾음
+    const groups = {};
+    for (const r of p.rows) {
+      const key = `${r.질문번호}-${r.답번호}`;
+      (groups[key] = groups[key] || []).push(r);
+    }
+    const multi = Object.values(groups).filter(g => g.length >= 2);
+    if (!multi.length) return HARD.keywordsToSource(p);
+    const g = p.rng.choice(multi);
+    const starts = g.map(r => `"${r.말씀.split(" ").slice(0, 4).join(" ")}…"`).join(" / ");
+    const correct = g[0].답;
+    const others = p.rows.filter(r => r.답 !== correct);
+    const distract = p.rng.sample([...new Set(others.map(r => r.답))], 2);
+    const opts = p.rng.shuffle([correct, ...distract]);
+    const labels = "ABC";
+    const lines = opts.map((o, i) => `${labels[i]}) ${o}`);
+    const ans = labels[opts.indexOf(correct)];
+    return {
+      tag: "구절그룹→답",
+      q: [`다음 구절들은 모두 하나의 답을 뒷받침합니다. 그 답은 무엇인가요? — ${starts}`, ...lines],
+      a: [`정답) ${ans} — ${correct}`],
+      src: g.map(r => r.ID).join(",")
+    };
+  }
+};
+
+// ==================== 세트 구성 ====================
+function buildSet(handbook, quizType, seed, opts = {}) {
+  const hb = HANDBOOKS[handbook];
+  // 단원(질문번호) 필터: opts.units 가 있으면 해당 단원만
+  let rows = hb.rows,
+    vocabs = hb.vocabs;
+  if (opts.units && opts.units.length) {
+    rows = hb.rows.filter(r => opts.units.includes(r.질문번호));
+    const rowIds = new Set(rows.map(r => r.ID));
+    // 해당 단원 말씀에 연결된 어휘만 사용 (연결 없으면 전체 유지)
+    const filtered = hb.vocabs.filter(v => !v.말씀ID || rowIds.has(v.말씀ID));
+    vocabs = filtered.length ? filtered : hb.vocabs;
+  }
+  const rng = makeRng(seed);
+  const sections = [];
+  const types = quizType === "전체" ? ["필기", "객관식", "스피드", "괄호채우기"] : [quizType];
+  for (const t of types) {
+    const p = new Picker(rows, vocabs, rng, hb.rows, hb.vocabs);
+    let items = [],
+      reserve = [];
+    if (t === "객관식") {
+      const plan = [MC.themeQuestion, MC.completeVerse, MC.matchPair, MC.wordMeaning, MC.findAnswer, MC.findSource, MC.findSourceByStart, rng.choice([MC.wordMeaning, MC.findSource, MC.findAnswer])];
+      items = plan.map(f => f(p));
+      reserve = [MC.memorizeOrder(p), MC.findSourceByStart(p)];
+    } else if (t === "스피드") {
+      const plan = [SP.blankWord, SP.answerToSource, SP.sourceToQuestion, SP.wordMeaning, SP.sourceAndRecite, SP.questionSourceToAnswer, SP.quoteToSource, SP.continueRecite, SP.fullRecite, rng.choice([SP.blankWord, SP.answerToSource, SP.wordMeaning])];
+      items = plan.map(f => f(p));
+      reserve = [SP.fullRecite(p), SP.answerToSource(p)];
+    } else if (t === "괄호채우기") {
+      const levels = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1, 2, 3, 4];
+      const fnByLevel = {
+        1: CLOZE.level1,
+        2: CLOZE.level2,
+        3: CLOZE.level3,
+        4: CLOZE.level4
+      };
+      // 선택된 각 단계마다 3문항씩
+      const plan = [];
+      for (const lv of [1, 2, 3, 4]) {
+        if (levels.includes(lv)) {
+          plan.push(fnByLevel[lv], fnByLevel[lv], fnByLevel[lv]);
+        }
+      }
+      items = plan.map(f => f(p));
+    } else if (t === "고난도") {
+      const plan = [HARD.commonVocab, HARD.oddOneOut, HARD.keywordsToSource, HARD.versesToAnswer, HARD.commonVocab, HARD.keywordsToSource];
+      items = plan.map(f => f(p));
+    } else {
+      const plan = [WR.fillBlanks, WR.fillBlanks, WR.writeSourceVerse, p => WR.ox(p, true), p => WR.ox(p, false), p => WR.ox(p, rng.rand() < 0.5), WR.completeBack, WR.writeQA, WR.writeQA, WR.matchWords, WR.wordMeaningWrite, WR.commonWord, WR.fullRecite, WR.shortAnswer, WR.listAnswers];
+      items = plan.map(f => f(p));
+    }
+    let label;
+    if (t === "필기") label = "필기시험 (15문항)";else if (t === "객관식") label = "객관식 문제 (8문항 + 예비 2)";else if (t === "스피드") label = "스피드 문제 (10문항 + 예비 2)";else if (t === "괄호채우기") {
+      const lv = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1, 2, 3, 4];
+      label = `괄호 채우기 (${lv.join("·")}단계, 각 3문항)`;
+    } else label = "고난도 심화 (6문항)";
+    sections.push({
+      type: t,
+      label,
+      items,
+      reserve
+    });
+  }
+  return sections;
+}
+
+// ⛔⛔⛔ [ENGINE] 여기까지가 문제 생성 로직입니다 (위쪽 전부 수정 금지) ⛔⛔⛔
+// ────────────────────────────────────────────────────────────────────────
+// ✅ 아래부터는 UI 입니다. 여기서부터 자유롭게 디자인을 개선하세요.
+// ────────────────────────────────────────────────────────────────────────
+
+// ==================== UI ====================
+// ✅ [UI] 메인 컴포넌트 — 마크업과 스타일만 개선 (훅·buildSet 동작은 원본 유지)
+function QuizGenerator({
+  slug,
+  displayName
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [handbook, setHandbook] = useState(displayName || "");
+  const [quizType, setQuizType] = useState("전체");
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 10000));
+  const [seedInput, setSeedInput] = useState("");
+  const [showAnswers, setShowAnswers] = useState(false);
+  const [printHint, setPrintHint] = useState(false);
+  const [clozeLevels, setClozeLevels] = useState([1, 2, 3, 4]);
+  const [units, setUnits] = useState([1, 2, 3, 4]);
+
+  // 마운트 시 CSV 로드
+  React.useEffect(() => {
+    let alive = true;
+    loadHandbook(slug, displayName).then(data => {
+      if (!alive) return;
+      HANDBOOKS = {};
+      HANDBOOKS[displayName] = data;
+      HANDBOOK_ORDER = [displayName];
+      setHandbook(displayName);
+      setLoaded(true);
+    }).catch(e => {
+      if (alive) setLoadError(e && e.message ? e.message : String(e));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [slug, displayName]);
+  const sections = useMemo(() => loaded ? buildSet(handbook, quizType, seed, {
+    clozeLevels,
+    units
+  }) : [], [loaded, handbook, quizType, seed, clozeLevels, units]);
+  const toggleLevel = lv => {
+    setClozeLevels(prev => prev.includes(lv) ? prev.filter(x => x !== lv) : [...prev, lv].sort());
+  };
+  const toggleUnit = u => {
+    setUnits(prev => prev.includes(u) ? prev.length > 1 ? prev.filter(x => x !== u) : prev : [...prev, u].sort());
+  };
+  // 현재 핸드북의 대단원 목록 (질문번호 -> 질문 텍스트)
+  const unitList = useMemo(() => {
+    if (!loaded || !HANDBOOKS[handbook]) return [];
+    const seen = new Map();
+    for (const r of HANDBOOKS[handbook].rows) {
+      if (!seen.has(r.질문번호)) seen.set(r.질문번호, r.질문);
+    }
+    return [...seen.entries()].sort((a, b) => a[0] - b[0]);
+  }, [loaded, handbook]);
+
+  // 표시용 파생값 (buildSet 동작에는 영향 없음)
+  const clozeActive = quizType === "괄호채우기" || quizType === "전체";
+  const allUnitsOn = unitList.length > 0 && units.length === unitList.length;
+  const selectAllUnits = () => setUnits(allUnitsOn ? [unitList[0][0]] : unitList.map(([n]) => n));
+  const regenerate = () => {
+    const n = parseInt(seedInput, 10);
+    setSeed(Number.isFinite(n) ? n : Math.floor(Math.random() * 10000));
+    setSeedInput("");
+  };
+  const handlePrint = () => {
+    try {
+      window.print();
+    } catch (e) {}
+    setPrintHint(true);
+  };
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+  const totalCount = sections.reduce((n, s) => n + s.items.length + s.reserve.length, 0);
+  const pad2 = n => String(n).padStart(2, "0");
+  if (loadError) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 40,
+        textAlign: "center",
+        fontFamily: "'Lora','Nanum Myeongjo',serif",
+        color: "#7d5411"
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 16
+      }
+    }, "데이터를 불러오지 못했습니다."), /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 14,
+        color: "#7d5411",
+        background: "#f6efe0",
+        border: "1px solid #d8c69a",
+        borderRadius: 8,
+        padding: 14,
+        maxWidth: 480,
+        margin: "16px auto",
+        textAlign: "left",
+        lineHeight: 1.7
+      }
+    }, "이 페이지는 웹서버에서 열어야 데이터(CSV)를 읽을 수 있습니다.", /*#__PURE__*/React.createElement("br", null), "GitHub Pages 주소에서 열거나, 로컬이라면 이 폴더에서 ", /*#__PURE__*/React.createElement("b", null, "python -m http.server"), " 를 실행한 뒤 localhost 주소로 여세요.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("br", null), "(오류: ", loadError, ")"), /*#__PURE__*/React.createElement("a", {
+      href: "index.html",
+      style: {
+        color: "#b68235",
+        fontWeight: 700
+      }
+    }, "← 메뉴로"));
+  }
+  if (!loaded) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 40,
+        textAlign: "center",
+        fontFamily: "'Lora','Nanum Myeongjo',serif",
+        color: "#7d5411",
+        fontSize: 16
+      }
+    }, "구절을 불러오는 중…");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "app-root"
+  }, /*#__PURE__*/React.createElement("style", null, `
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Lora:ital,wght@0,400;0,500;1,400&family=Nanum+Myeongjo:wght@400;700&display=swap');
+
+        .app-root {
+          --paper:#fbfaf8; --ink:#201f1d; --acc:#b68235; --acc-d:#7d5411;
+          --div:rgba(32,31,29,.16); --div-2:rgba(32,31,29,.34); --mute:rgba(32,31,29,.55);
+          --f-head:'Cormorant Garamond','Nanum Myeongjo','Batang',serif;
+          --f-body:'Lora','Nanum Myeongjo','Batang',serif;
+          min-height:100vh; background:#f3f2f2; color:var(--ink);
+          font-family:var(--f-body); font-size:14px;
+        }
+        .app-root *, .app-root *::before, .app-root *::after { box-sizing:border-box; }
+        .app-root ::selection { background:rgba(182,130,53,.22); }
+
+        /* ── 컨트롤 콘솔 ── */
+        .console { position:sticky; top:0; z-index:5; background:#f3f2f2;
+          border-bottom:1px solid var(--div-2); padding:14px 26px 16px; }
+        .console-title { display:flex; align-items:center; gap:14px; margin-bottom:13px; }
+        .console h1 { font-family:var(--f-head); font-weight:600; font-size:19px;
+          margin:0; letter-spacing:.02em; color:rgba(32,31,29,.72); }
+        .iseg { display:inline-flex; border:1px solid var(--div-2); border-radius:4px;
+          overflow:hidden; }
+        .iseg-opt { position:relative; display:inline-flex; align-items:center;
+          justify-content:center; width:34px; height:30px; color:var(--mute);
+          cursor:pointer; }
+        .iseg-opt + .iseg-opt { border-left:1px solid var(--div-2); }
+        .iseg-opt:not(.on):hover { background:rgba(32,31,29,.06); }
+        .iseg-opt.on { color:var(--acc-d); box-shadow:inset 0 0 0 1px var(--acc); }
+        .iseg-opt input { position:absolute; opacity:0; width:1px; height:1px; }
+        .iseg-opt svg { width:16px; height:16px; }
+        .mode-name { font-family:var(--f-head); font-size:11px; letter-spacing:.14em;
+          color:var(--mute); }
+        .mode-name.answer { color:var(--acc-d); }
+        .ibtn { display:inline-flex; align-items:center; justify-content:center;
+          width:34px; height:30px; padding:0; background:transparent; cursor:pointer;
+          color:var(--acc-d); border:1px solid var(--acc); border-radius:4px; }
+        .ibtn:hover { background:rgba(182,130,53,.12); }
+        .ibtn:active { background:rgba(182,130,53,.22); }
+        .ibtn:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+        .ibtn svg { width:16px; height:16px; }
+        .kicker { display:block; font-family:var(--f-head); font-size:10px;
+          letter-spacing:.24em; text-transform:uppercase; color:var(--acc-d);
+          font-variant-numeric:tabular-nums; }
+        .bar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:14px 20px; }
+        .ctrl { display:flex; flex-direction:column; gap:6px; }
+        .ctrl .lbl { font-family:var(--f-head); font-size:10.5px; letter-spacing:.12em;
+          color:var(--mute); }
+        .ctrl.is-off { opacity:.4; }
+        .ctrl.is-off .chips { pointer-events:none; }
+        .pair { display:flex; }
+        .pair .txt { border-radius:4px 0 0 4px; }
+        .pair .btn { border-radius:0 4px 4px 0; margin-left:-1px; }
+        .sel-wrap { position:relative; display:inline-flex; }
+        .sel-wrap::after { content:''; position:absolute; right:11px; top:50%; margin-top:-2px;
+          border-left:4px solid transparent; border-right:4px solid transparent;
+          border-top:5px solid var(--acc); pointer-events:none; }
+        .sel, .txt { font-family:var(--f-body); font-size:14px; color:var(--ink);
+          background:transparent; border:1px solid var(--div-2); border-radius:4px;
+          min-height:36px; padding:6px 10px; }
+        .sel { appearance:none; -webkit-appearance:none; padding-right:30px; }
+        .txt { width:104px; font-variant-numeric:tabular-nums; }
+        .sel:hover, .txt:hover { border-color:rgba(32,31,29,.5); }
+        .sel:focus-visible, .txt:focus-visible, .btn:focus-visible,
+        .chip:has(input:focus-visible), .seg-opt:has(input:focus-visible) {
+          outline:2px solid var(--acc); outline-offset:2px; }
+        .txt::placeholder { color:rgba(32,31,29,.38); }
+
+        .chips { display:inline-flex; border:1px solid var(--div-2); border-radius:4px;
+          overflow:hidden; }
+        .chip { position:relative; display:inline-flex; align-items:center; justify-content:center;
+          min-height:36px; padding:0 12px; font-size:13px; color:var(--mute);
+          cursor:pointer; user-select:none; font-variant-numeric:tabular-nums; }
+        .chip + .chip { border-left:1px solid var(--div-2); }
+        .chip.num { width:34px; padding:0; }
+        .chip.all { font-family:var(--f-head); font-size:12px; letter-spacing:.06em; }
+        .chip:not(.on):hover { background:rgba(32,31,29,.06); }
+        .chip.on { color:var(--acc-d); box-shadow:inset 0 0 0 1px var(--acc); }
+        .chip input { position:absolute; opacity:0; width:1px; height:1px; }
+
+        .btn { font-family:var(--f-head); font-weight:600; font-size:14px; letter-spacing:.02em;
+          min-height:36px; padding:0 16px; border-radius:4px; border:1px solid transparent;
+          background:transparent; color:var(--ink); cursor:pointer; }
+        .btn-primary { border-color:var(--acc); color:var(--acc-d); }
+        .btn-primary:hover { background:rgba(182,130,53,.12); }
+        .btn-primary:active { background:rgba(182,130,53,.22); }
+        .btn-secondary { border-color:var(--div-2); }
+        .btn-secondary:hover { background:rgba(32,31,29,.07); }
+        .btn-secondary:active { background:rgba(32,31,29,.14); }
+
+        .seg { display:inline-flex; border:1px solid var(--div-2); border-radius:4px; overflow:hidden; }
+        .seg-opt { position:relative; display:inline-flex; align-items:center; min-height:36px;
+          padding:0 14px; font-size:13px; color:var(--mute); cursor:pointer; }
+        .seg-opt + .seg-opt { border-left:1px solid var(--div-2); }
+        .seg-opt:not(.on):hover { background:rgba(32,31,29,.06); }
+        .seg-opt.on { color:var(--acc-d); box-shadow:inset 0 0 0 1px var(--acc); }
+        .seg-opt input { position:absolute; opacity:0; width:1px; height:1px; }
+
+
+        .note { background:#fff3e4; border-bottom:1px solid var(--div); color:#5a3b0a;
+          padding:12px 24px; font-size:12.5px; line-height:1.8;
+          display:flex; gap:14px; align-items:flex-start; }
+        .note kbd { font-family:var(--f-head); font-weight:600; font-size:12px;
+          border:1px solid rgba(90,59,10,.4); border-radius:3px; padding:0 5px; }
+        .note .x { margin-left:auto; background:none; border:0; color:inherit;
+          font-size:17px; line-height:1; cursor:pointer; padding:0 2px; }
+
+        /* ── 시험지 ── */
+        .deck { max-width:900px; margin:32px auto 72px; padding:0 16px; }
+        .sheet { background:var(--paper); box-shadow:0 3px 10px rgba(45,43,43,.16);
+          padding:54px 60px 60px; }
+
+        .masthead { border-top:2px solid var(--ink); padding-top:14px; }
+        .masthead-row { display:flex; justify-content:space-between; align-items:flex-end;
+          gap:18px; flex-wrap:wrap; padding-bottom:13px; border-bottom:1px solid var(--ink); }
+        .masthead h2 { font-family:var(--f-head); font-weight:400; font-size:33px;
+          line-height:1.15; margin:7px 0 0; letter-spacing:.01em; }
+        .stamp { font-family:var(--f-head); font-size:11px; letter-spacing:.14em;
+          color:var(--mute); text-align:right; line-height:1.9;
+          font-variant-numeric:tabular-nums; }
+        .stamp .mode { display:block; font-size:14px; letter-spacing:.1em; color:var(--ink); }
+        .stamp .mode.answer { color:var(--acc-d); }
+
+        .ident { display:grid; grid-template-columns:auto 1fr auto 1fr auto 1fr;
+          border-bottom:1px solid var(--div); }
+        .ident .k { font-family:var(--f-head); font-size:11px; letter-spacing:.12em;
+          color:var(--mute); padding:11px 12px 11px 0; align-self:end; }
+        .ident .v { align-self:end; height:22px; margin:0 22px 9px 0;
+          border-bottom:1px solid var(--div-2); }
+        .ident .v:last-child { margin-right:0; }
+
+        .quiz-section { margin-top:42px; }
+        .section-head { display:flex; align-items:baseline; justify-content:space-between;
+          gap:16px; padding-bottom:8px; border-bottom:1px solid var(--ink); }
+        .section-head .n { font-family:var(--f-head); font-size:11px; letter-spacing:.2em;
+          text-transform:uppercase; color:var(--acc-d); font-variant-numeric:tabular-nums; }
+        .section-head h3 { font-family:var(--f-head); font-weight:600; font-size:21px; margin:4px 0 0; }
+        .section-head .cnt { font-size:11.5px; letter-spacing:.06em; color:var(--mute);
+          white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+        .item { display:grid; grid-template-columns:2.6em 1fr; column-gap:13px;
+          padding:27px 0 30px; border-bottom:1px solid var(--div); }
+        .item.is-reserve { grid-template-columns:4.2em 1fr; }
+        .item .no { font-family:var(--f-head); font-size:16px; line-height:1.75;
+          color:var(--acc-d); text-align:right; font-variant-numeric:tabular-nums; }
+        .item.is-reserve .no { font-size:11.5px; letter-spacing:.06em; line-height:2.4; }
+        .q-lead { line-height:1.95; text-wrap:pretty; }
+        .tag { display:inline-block; font-family:var(--f-head); font-size:10.5px;
+          letter-spacing:.1em; color:var(--mute); border:1px solid var(--div);
+          border-radius:3px; padding:1px 6px; margin-right:8px; vertical-align:2px;
+          white-space:nowrap; }
+        .sub { margin-top:9px; line-height:2.05; color:#2d2b2b; text-wrap:pretty; }
+        .verse { margin-top:11px; padding-left:15px; border-left:1px solid var(--div-2);
+          font-size:14.5px; line-height:2.05; text-wrap:pretty; }
+        .opt { display:grid; grid-template-columns:1.7em 1fr; margin-top:7px; line-height:1.95; }
+        .opt-k { font-family:var(--f-head); font-size:14.5px; color:var(--acc-d); }
+
+        .blanks { display:grid; grid-template-columns:1fr 1fr; gap:16px 30px; margin-top:15px; }
+        .bl { display:flex; align-items:baseline; gap:9px; font-size:13.5px; }
+        .bl .n { font-family:var(--f-head); min-width:2.1em; text-align:right;
+          color:var(--acc-d); font-variant-numeric:tabular-nums; }
+        .bl .line { flex:1; min-height:23px; border-bottom:1px solid var(--div-2); }
+        .bl .fill { flex:1; color:var(--acc-d); line-height:1.85;
+          border-bottom:1px solid var(--div); }
+
+        .match2 { display:grid; grid-template-columns:1fr 1fr; gap:20px 36px; margin-top:15px; }
+        .m-col { display:flex; flex-direction:column; gap:10px; }
+        .m-cell { display:flex; align-items:baseline; gap:8px; font-size:13.5px; line-height:1.8; }
+        .m-cell .k { font-family:var(--f-head); color:var(--acc-d);
+          font-variant-numeric:tabular-nums; }
+        .m-cell .lead { flex:1; border-bottom:1px dotted var(--div-2); min-width:14px; }
+        .m-cell .pt { color:var(--acc); font-size:10px; }
+
+        .ans { margin-top:11px; padding-left:13px; border-left:2px solid var(--acc);
+          color:var(--acc-d); font-size:13.5px; line-height:1.9; text-wrap:pretty; }
+        .meta { margin-top:8px; font-family:var(--f-head); font-size:10.5px;
+          letter-spacing:.08em; color:rgba(32,31,29,.42); font-variant-numeric:tabular-nums; }
+
+        .reserve { display:flex; align-items:center; gap:13px; margin:28px 0 0; }
+        .reserve .lbl { font-family:var(--f-head); font-size:10.5px; letter-spacing:.2em;
+          text-transform:uppercase; color:var(--acc-d); white-space:nowrap; }
+        .reserve .r { flex:1; height:1px; background:var(--div-2); }
+
+        .foot { margin-top:46px; padding-top:15px; border-top:1px solid var(--div);
+          text-align:center; font-family:var(--f-head); font-size:11px;
+          letter-spacing:.2em; color:var(--mute); }
+
+        @media (max-width:700px) {
+          .sheet { padding:30px 22px 42px; }
+          .masthead h2 { font-size:26px; }
+          .blanks, .match2 { grid-template-columns:1fr; }
+        }
+
+        @media print {
+          @page { margin:14mm; }
+          .console, .note { display:none !important; }
+          .app-root { background:#fff; font-size:13px; }
+          .deck { max-width:none; margin:0; padding:0; }
+          .sheet { box-shadow:none; background:#fff; padding:0; }
+          .item { break-inside:avoid; }
+          .quiz-section { margin-top:28px; }
+          .item { padding:20px 0 22px; }
+          .quiz-section.pagebreak { break-before:page; page-break-before:always; }
+          .masthead, .section-head { break-after:avoid; }
+          /* 흑백 인쇄: 금색은 검정으로, 배경 채색 제거 */
+          .item .no, .opt-k, .bl .n, .bl .fill, .m-cell .k, .m-cell .pt,
+          .section-head .n, .kicker, .reserve .lbl, .stamp .mode.answer, .ans {
+            color:#000 !important; }
+          .ans { border-left-color:#000 !important; }
+          .tag { color:#000 !important; border-color:#a8a5a5 !important; background:#fff !important; }
+        }
+      `), /*#__PURE__*/React.createElement("header", {
+    className: "console"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "console-title"
+  }, /*#__PURE__*/React.createElement("h1", null, "성경퀴즈 문제 생성기"), /*#__PURE__*/React.createElement("button", {
+    className: "ibtn",
+    onClick: handlePrint,
+    title: "인쇄 · PDF 저장",
+    "aria-label": "인쇄 · PDF 저장"
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M6 9V3h12v6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
+  }), /*#__PURE__*/React.createElement("rect", {
+    x: "6",
+    y: "14",
+    width: "12",
+    height: "8",
+    rx: "1"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "iseg",
+    role: "group",
+    "aria-label": "인쇄 형태"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: `iseg-opt ${!showAnswers ? "on" : ""}`,
+    title: "문제지 — 정답 없이 인쇄"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "radio",
+    name: "mode",
+    checked: !showAnswers,
+    onChange: () => setShowAnswers(false),
+    "aria-label": "문제지"
+  }), /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M14 2v7h7"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 13H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M16 17H8"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M10 9H8"
+  }))), /*#__PURE__*/React.createElement("label", {
+    className: `iseg-opt ${showAnswers ? "on" : ""}`,
+    title: "답지 — 정답과 근거를 함께 인쇄"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "radio",
+    name: "mode",
+    checked: showAnswers,
+    onChange: () => setShowAnswers(true),
+    "aria-label": "답지"
+  }), /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "9"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "m8.5 12.2 2.4 2.4 4.6-4.8"
+  })))), /*#__PURE__*/React.createElement("span", {
+    className: `mode-name ${showAnswers ? "answer" : ""}`
+  }, showAnswers ? "답지" : "문제지")), /*#__PURE__*/React.createElement("div", {
+    className: "bar"
+  }, HANDBOOK_ORDER.length > 1 ? /*#__PURE__*/React.createElement("div", {
+    className: "ctrl"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "lbl",
+    htmlFor: "hb"
+  }, "핸드북"), /*#__PURE__*/React.createElement("span", {
+    className: "sel-wrap"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "sel",
+    id: "hb",
+    value: handbook,
+    onChange: e => setHandbook(e.target.value)
+  }, HANDBOOK_ORDER.map(h => /*#__PURE__*/React.createElement("option", {
+    key: h
+  }, h))))) : null, /*#__PURE__*/React.createElement("div", {
+    className: "ctrl"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "lbl",
+    htmlFor: "qt"
+  }, "퀴즈 유형"), /*#__PURE__*/React.createElement("span", {
+    className: "sel-wrap"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "sel",
+    id: "qt",
+    value: quizType,
+    onChange: e => setQuizType(e.target.value)
+  }, ["전체", "필기", "객관식", "스피드", "괄호채우기", "고난도"].map(t => /*#__PURE__*/React.createElement("option", {
+    key: t
+  }, t))))), /*#__PURE__*/React.createElement("div", {
+    className: "ctrl"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lbl"
+  }, "출제 단원"), /*#__PURE__*/React.createElement("div", {
+    className: "chips"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: `chip all ${allUnitsOn ? "on" : ""}`,
+    title: "모든 단원 선택"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: allUnitsOn,
+    onChange: selectAllUnits
+  }), "전체"), unitList.map(([n, q]) => /*#__PURE__*/React.createElement("label", {
+    key: n,
+    className: `chip num ${units.includes(n) ? "on" : ""}`,
+    title: `${n}단원 — ${q}`
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: units.includes(n),
+    onChange: () => toggleUnit(n)
+  }), n)))), /*#__PURE__*/React.createElement("div", {
+    className: `ctrl ${clozeActive ? "" : "is-off"}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lbl"
+  }, "괄호 단계"), /*#__PURE__*/React.createElement("div", {
+    className: "chips"
+  }, [1, 2, 3, 4].map(lv => /*#__PURE__*/React.createElement("label", {
+    key: lv,
+    className: `chip num ${clozeActive && clozeLevels.includes(lv) ? "on" : ""}`,
+    title: `괄호 ${lv}단계`
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    disabled: !clozeActive,
+    checked: clozeLevels.includes(lv),
+    onChange: () => toggleLevel(lv)
+  }), lv)))), /*#__PURE__*/React.createElement("div", {
+    className: "ctrl"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "lbl",
+    htmlFor: "sd"
+  }, "시드 (비우면 랜덤)"), /*#__PURE__*/React.createElement("div", {
+    className: "pair"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "txt",
+    id: "sd",
+    value: seedInput,
+    placeholder: String(seed),
+    onChange: e => setSeedInput(e.target.value),
+    onKeyDown: e => e.key === "Enter" && regenerate()
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary",
+    onClick: regenerate
+  }, "새 문제"))))), printHint && /*#__PURE__*/React.createElement("div", {
+    className: "note"
+  }, /*#__PURE__*/React.createElement("span", null, "인쇄창이 안 뜨면 ", /*#__PURE__*/React.createElement("kbd", null, isMac ? "⌘" : "Ctrl"), " + ", /*#__PURE__*/React.createElement("kbd", null, "P"), " 를 누르세요. 대상에서 ", /*#__PURE__*/React.createElement("b", null, "“PDF로 저장”"), "을 고르면 파일로 저장됩니다.", showAnswers ? " 지금은 답지 상태 — 정답이 함께 인쇄됩니다." : " 지금은 문제지 상태 — 정답 없이 인쇄됩니다.", /*#__PURE__*/React.createElement("br", null), "화면에 컨트롤이 함께 보여도 인쇄물에는 시험지만 나옵니다."), /*#__PURE__*/React.createElement("button", {
+    className: "x",
+    onClick: () => setPrintHint(false),
+    "aria-label": "닫기"
+  }, "×")), /*#__PURE__*/React.createElement("main", {
+    className: "deck"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sheet"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "masthead"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "masthead-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker"
+  }, "Awana 성경퀴즈대회 · SYDC"), /*#__PURE__*/React.createElement("h2", null, handbook, " 퀴즈 시험지")), /*#__PURE__*/React.createElement("div", {
+    className: "stamp"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `mode ${showAnswers ? "answer" : ""}`
+  }, showAnswers ? "답지 (교사용)" : "문제지"), "seed ", seed, " · ", totalCount, "문항")), /*#__PURE__*/React.createElement("div", {
+    className: "ident"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "k"
+  }, "교회"), /*#__PURE__*/React.createElement("div", {
+    className: "v"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "k"
+  }, "학년"), /*#__PURE__*/React.createElement("div", {
+    className: "v"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "k"
+  }, "이름"), /*#__PURE__*/React.createElement("div", {
+    className: "v"
+  }))), sections.map((sec, si) => /*#__PURE__*/React.createElement("section", {
+    key: sec.type,
+    className: `quiz-section ${si > 0 ? "pagebreak" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "section-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "n"
+  }, "Part ", pad2(si + 1)), /*#__PURE__*/React.createElement("h3", null, sec.label.split(" (")[0])), /*#__PURE__*/React.createElement("span", {
+    className: "cnt"
+  }, sec.label.match(/\((.+)\)/)?.[1])), sec.items.map((it, i) => /*#__PURE__*/React.createElement(Item, {
+    key: i,
+    no: `${i + 1}.`,
+    it: it,
+    showAnswers: showAnswers
+  })), sec.reserve.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "reserve"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lbl"
+  }, "예비 문제"), /*#__PURE__*/React.createElement("span", {
+    className: "r"
+  })), sec.reserve.map((it, i) => /*#__PURE__*/React.createElement(Item, {
+    key: `r${i}`,
+    no: `예비 ${i + 1}`,
+    reserve: true,
+    it: it,
+    showAnswers: showAnswers
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "foot"
+  }, "T & T 친구들 수고하셨습니다"))));
+}
+
+// ✅ [UI] 한 문제를 그리는 컴포넌트 — 값의 이름(q, a, tag, src, blanks, match2col)은 그대로,
+//    줄 종류(보기 A/B/C · 인용 구절 · 일반 줄)만 알아보고 다르게 조판합니다.
+function Item({
+  no,
+  it,
+  showAnswers,
+  reserve
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: `item ${reserve ? "is-reserve" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "no"
+  }, no), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "q-lead"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, it.tag), it.q[0]), it.q.slice(1).map((ln, i) => {
+    const opt = /^([ABC])\)\s*([\s\S]*)$/.exec(ln);
+    if (opt) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        className: "opt"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "opt-k"
+      }, opt[1], ")"), /*#__PURE__*/React.createElement("span", null, opt[2]));
+    }
+    const t = String(ln).trim();
+    if (t.startsWith("\"") || t.startsWith("(") || t.startsWith("<")) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        className: "verse"
+      }, ln);
+    }
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "sub"
+    }, ln);
+  }), it.match2col && /*#__PURE__*/React.createElement("div", {
+    className: "match2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "m-col"
+  }, it.match2col.left.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.no,
+    className: "m-cell"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "k"
+  }, c.no, ")"), /*#__PURE__*/React.createElement("span", null, c.text), /*#__PURE__*/React.createElement("span", {
+    className: "lead"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "pt"
+  }, "●")))), /*#__PURE__*/React.createElement("div", {
+    className: "m-col"
+  }, it.match2col.right.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.label,
+    className: "m-cell"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pt"
+  }, "●"), /*#__PURE__*/React.createElement("span", {
+    className: "k"
+  }, c.label, ")"), /*#__PURE__*/React.createElement("span", null, c.text))))), it.blanks && /*#__PURE__*/React.createElement("div", {
+    className: "blanks"
+  }, it.blanks.map(b => /*#__PURE__*/React.createElement("div", {
+    key: b.no,
+    className: "bl"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "n"
+  }, "(", b.no, ")"), showAnswers ? /*#__PURE__*/React.createElement("span", {
+    className: "fill"
+  }, b.text) : /*#__PURE__*/React.createElement("span", {
+    className: "line"
+  })))), showAnswers && !it.blanks && it.a.map((ln, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "ans"
+  }, ln)), showAnswers && /*#__PURE__*/React.createElement("div", {
+    className: "meta"
+  }, "근거 · ", it.src)));
+}
+
+var root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(QuizGenerator, { slug: "challenge2", displayName: "챌린지2" }));
+} catch (e) {
+  var s = document.getElementById("status");
+  if (s) s.innerHTML = '화면을 그리는 중 오류가 발생했습니다.<div class="err">' + (e && e.message ? e.message : e) + '</div>';
+  throw e;
+}
+</script>
+</body>
+</html>
