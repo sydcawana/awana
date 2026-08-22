@@ -50,6 +50,9 @@ const HB_GROUPS = [
   {label:"Sparks",color:"#EF4444",light:"#FFF0F0",border:"#EF4444",books:["행글라이더","윙러너","스카이스토머"]},
   {label:"T&T",  color:"#16A34A",light:"#F0FFF4",border:"#22C55E",books:["어드벤처1","어드벤처2","챌린지1","챌린지2"]},
 ];
+// 배포 확인용 버전 (설정 헤더에 표시됨) — 파일을 바꿀 때마다 올려주세요
+const APP_VER = "2026-2학기 v5";
+
 // ⚠️ 매 학기 이 줄만 갈아끼우면 됩니다 (0번은 테스트 주차)
 // 2학기: 8/23 개강 ~ 12/13 종강, 9/27·10/18 휴강
 const WEEK_DATES = ["8월 16일(테스트)","8월 23일","8월 30일","9월 6일","9월 13일","9월 20일","10월 4일","10월 11일","10월 25일","11월 1일","11월 8일","11월 15일","11월 22일","11월 29일","12월 6일","12월 13일"];
@@ -632,6 +635,32 @@ async function primeWeek(w){
   const wd=S.wdata[w];
   if(wd && Object.keys(wd.students||{}).length) return;
   await resetWeekData(w,false);
+}
+
+// ── 안 쓴 주차 판별 ──
+// 출석·단복·암송·시상·게임 어느 것이든 실제로 입력하면 _savedAt 이 찍힌다.
+// 리셋으로만 만들어진 주차에는 _savedAt 이 없으므로 실데이터를 지울 위험이 없다.
+function isUnusedWeek(w){
+  if(w<=0) return false;
+  if(!S.closedWeeks.includes(w)) return false;        // 열려 있는(진행 중) 주차는 제외
+  const wd=S.wdata[w];
+  if(!wd || wd._savedAt) return false;                // 입력 흔적 있으면 제외
+  return Object.keys(wd.students||{}).length>0;       // 비울 게 있을 때만
+}
+// ── 통계 집계 대상 주차인가 ──
+// 통계는 "이번 학기에 실제로 진행한 주차"만 세야 한다.
+// 출석·단복·암송·시상·게임 중 무엇이든 한 번이라도 입력하면 그 주차에 _savedAt 이 찍히고,
+// 리셋으로만 만들어진 주차(=아직 진행 안 함)에는 없다.
+// → 학기 전환 직후에는 모든 주차가 집계에서 빠져 누적이 0이 된다.
+function isCountedWeek(w){
+  w=Number(w);
+  if(w<=0) return false;               // 테스트 주차 제외
+  return !!S.wdata[w]?._savedAt;
+}
+// 통계 화면에 실제로 표시되는 전체 핸드북 누적
+function totalCumHb(){
+  return TEAMS.reduce((sum,t)=>sum+Object.entries(S.wdata).reduce(
+    (a,[wk,wd])=>isCountedWeek(wk)?a+calcTeamHb(wd,t.id):a,0),0);
 }
 
 // ════════════════════════════════════
@@ -2779,7 +2808,10 @@ function buildSettings(){
     D({position:"relative",background:"#fff",borderRadius:"0 0 16px 16px",maxHeight:"90vh",overflowY:"auto",
        boxShadow:"0 8px 24px rgba(0,0,0,0.15)"},
       D({background:"#1E293B",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"},
-        D({fontWeight:"700",fontSize:"14px",color:"#fff"},"관리자"),
+        D({display:"flex",alignItems:"baseline",gap:"7px"},
+          SP({fontWeight:"700",fontSize:"14px",color:"#fff"},"관리자"),
+          SP({fontSize:"10px",color:"#64748B"},APP_VER)
+        ),
         B({background:"none",border:"none",fontSize:"20px",cursor:"pointer",color:"#94A3B8",padding:"0 4px"},()=>{S.showSettings=false;render();},"×")
       ),
       D({display:"flex",borderBottom:"2px solid #E2E8F0",background:"#fff"},
@@ -3212,7 +3244,7 @@ function buildStMgr(){
         }
         let att=0,signs=0;
         Object.entries(S.wdata).forEach(([wk,wd2])=>{
-          if(Number(wk)===0) return; // 테스트 주차 제외
+          if(!isCountedWeek(wk)) return; // 아직 진행 안 한 주차 제외
           const d=(wd2?.students||{})[s.id]||{};
           if(d.attendance) att++;
           signs+=d.signs||0;
@@ -3561,9 +3593,45 @@ function buildConfigSet(){
         }
       },"🎓 새 학기로 전환 실행");
 
+    // ── 누적 점수 정리 (안 쓴 주차 비우기) ──
+    const unused=WEEKS.filter(isUnusedWeek);
+    const cumNow=totalCumHb();
+    const cleanBtn=B({width:"100%",background:unused.length?"#FFFBEB":"#F8FAFC",
+      border:`1px solid ${unused.length?"#FDE68A":"#E2E8F0"}`,borderRadius:"10px",
+      padding:"11px",color:unused.length?"#B45309":"#94A3B8",fontWeight:"700",
+      fontSize:"13px",cursor:unused.length?"pointer":"default",marginTop:"10px"},
+      async()=>{
+        const list=WEEKS.filter(isUnusedWeek);
+        if(!list.length){alert("정리할 주차가 없어요.\n이미 깨끗한 상태입니다.");return;}
+        if(!confirm(
+          `아직 진행하지 않은 ${list.length}개 주차의 남은 데이터를 비웁니다.\n\n`+
+          `대상: ${list.join(", ")}주차\n\n`+
+          `· 출석·암송·시상을 한 번이라도 입력한 주차\n`+
+          `· 지금 열려 있는 주차\n`+
+          `→ 이 둘은 절대 건드리지 않습니다.`)) return;
+        cleanBtn.disabled=true; cleanBtn.textContent="⏳ 정리 중...";
+        try{
+          for(const w of list) await resetWeekData(w,true);
+          S._statsLoaded=false;
+          alert(`✅ ${list.length}개 주차 정리 완료!`);
+          render();
+        }catch(e){ alert("정리 실패: "+e.message); }
+        finally{ cleanBtn.disabled=false; cleanBtn.textContent="🧹 안 쓴 주차 비우기"; }
+      },"🧹 안 쓴 주차 비우기");
+
+    const cleanNote=D({fontSize:"11px",color:"#94A3B8",marginTop:"5px",lineHeight:"1.6",textAlign:"center"},
+      `현재 통계 핸드북 누적 ${cumNow.toLocaleString()}점`,
+      unused.length?` · 안 쓴 주차 ${unused.length}개(${unused.join(",")})에 남은 데이터 있음`:` · 안 쓴 주차 없음`);
+
     return D({},desc,warn,statLine,
       D({display:"flex",gap:"6px",marginBottom:"10px"},previewBtn,csvBtn),
-      previewTable,runBtn);
+      previewTable,runBtn,
+      D({borderTop:"1px dashed #E2E8F0",marginTop:"14px",paddingTop:"12px"},
+        D({fontSize:"12px",fontWeight:"700",color:"#1E293B",marginBottom:"2px"},"안 쓴 주차 데이터 정리 (선택)"),
+        D({fontSize:"11px",color:"#64748B",lineHeight:"1.6"},
+          "통계는 실제로 진행한 주차만 세므로 누적 점수에는 영향이 없습니다. 저장된 데이터를 깔끔하게 비우고 싶을 때만 쓰세요."),
+        cleanBtn,cleanNote)
+    );
   });
 
   const testBtn=B({width:"100%",background:"#F5F3FF",border:"1px solid #DDD6FE",
@@ -3626,7 +3694,7 @@ function buildStatsView(){
   const win2Weeks={red:[],yellow:[],green:[],blue:[]};
   Object.keys(S.wdata).forEach(wk=>{
     const w=Number(wk);
-    if(w===0) return; // 테스트 주차 제외
+    if(!isCountedWeek(w)) return; // 테스트 주차 · 아직 진행 안 한 주차 제외
     const wd=S.wdata[w]; if(!wd?.gameFinalized) return;
     const scoreMap={};
     TEAMS.forEach(t=>{scoreMap[t.id]=calcTotalScore(wd,t.id);});
@@ -3673,11 +3741,11 @@ function buildStatsView(){
     D({display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"},
       ...TEAMS.map(t=>{
         const cumHb=Object.entries(S.wdata).reduce((sum,[wk,wd2])=>{
-          if(Number(wk)===0) return sum; // 테스트 주차 제외
+          if(!isCountedWeek(wk)) return sum; // 아직 진행 안 한 주차 제외
           return sum+calcTeamHb(wd2,t.id);
         },0);
         const cumSigns=Object.entries(S.wdata).reduce((sum,[wk,wd2])=>{
-          if(Number(wk)===0) return sum; // 테스트 주차 제외
+          if(!isCountedWeek(wk)) return sum; // 아직 진행 안 한 주차 제외
           return sum+S.students.filter(s=>s.team===t.id).reduce((s2,st)=>{
             const v=(wd2?.students||{})[st.id]?.signs||0;
             return s2+(typeof v==="number"?v:parseFloat(v)||0);
