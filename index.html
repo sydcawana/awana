@@ -51,11 +51,11 @@ const HB_GROUPS = [
   {label:"T&T",  color:"#16A34A",light:"#F0FFF4",border:"#22C55E",books:["어드벤처1","어드벤처2","챌린지1","챌린지2"]},
 ];
 // 배포 확인용 버전 (설정 헤더에 표시됨) — 파일을 바꿀 때마다 올려주세요
-const APP_VER = "2026-2학기 v5";
+const APP_VER = "2026-2학기 v9";
 
 // ⚠️ 매 학기 이 줄만 갈아끼우면 됩니다 (0번은 테스트 주차)
-// 2학기: 8/23 개강 ~ 12/13 종강, 9/27·10/18 휴강
-const WEEK_DATES = ["8월 16일(테스트)","8월 23일","8월 30일","9월 6일","9월 13일","9월 20일","10월 4일","10월 11일","10월 25일","11월 1일","11월 8일","11월 15일","11월 22일","11월 29일","12월 6일","12월 13일"];
+// 2학기: 8/23 개강 ~ 12/13 종강, 9/27·10/25 휴강
+const WEEK_DATES = ["8월 16일(테스트)","8월 23일","8월 30일","9월 6일","9월 13일","9월 20일","10월 4일","10월 11일","10월 18일","11월 1일","11월 8일","11월 15일","11월 22일","11월 29일","12월 6일","12월 13일"];
 const WEEKS = Array.from({length:16},(_,i)=>i);
 // ⚠️ 학기별 기수·기도 진행 순서 — 학기 전환 실행 시 이 값으로 채워집니다
 //    (설정 → 📋 진행 탭에서 언제든 수정 가능. 비우려면 {} 로 두세요)
@@ -637,26 +637,51 @@ async function primeWeek(w){
   await resetWeekData(w,false);
 }
 
-// ── 안 쓴 주차 판별 ──
-// 출석·단복·암송·시상·게임 어느 것이든 실제로 입력하면 _savedAt 이 찍힌다.
-// 리셋으로만 만들어진 주차에는 _savedAt 이 없으므로 실데이터를 지울 위험이 없다.
+// ── 주차에 실제 활동 흔적이 있는가 ──
+// _savedAt 은 핸드북 변경 같은 부수 작업으로도 찍히므로 신뢰할 수 없다.
+// 대신 주차 "내용"을 본다. 전원 출석·단복 기본값만 있고 나머지가 비어 있으면
+// 아직 한 번도 진행하지 않은 주차다.
+function hasRealAward(a){
+  if(!a) return false;
+  return !!(a.enroll||a.badge||a.wing||a.award||(a.gems>0)||((a.seals||[]).length>0));
+}
+// 빈 주차도 라운드 1개를 기본으로 갖고 있으므로(initGame) 점수가 들어간 라운드만 본다
+function hasGameScore(g){
+  return (g?.rounds||[]).some(r=>Object.values(r?.scores||{}).some(v=>(+v||0)!==0));
+}
+function weekHasActivity(wd){
+  if(!wd) return false;
+  if(wd.gameFinalized) return true;
+  if(hasGameScore(wd.games?.sparks)||hasGameScore(wd.games?.tnt)) return true;
+  if(wd.bonus&&Object.values(wd.bonus).some(v=>(+v||0)>0)) return true;
+  return Object.values(wd.students||{}).some(d=>
+    d.attendance===false || d.uniform===false ||   // 결석·단복 미착용 체크 = 손댄 흔적
+    ((+d.signs||0)>0) || d.memo || hasRealAward(d.awards));
+}
+
+// ── 안 쓴 주차 판별 (🧹 정리 대상) ──
 function isUnusedWeek(w){
   if(w<=0) return false;
   if(!S.closedWeeks.includes(w)) return false;        // 열려 있는(진행 중) 주차는 제외
   const wd=S.wdata[w];
-  if(!wd || wd._savedAt) return false;                // 입력 흔적 있으면 제외
+  if(!wd || weekHasActivity(wd)) return false;        // 활동 흔적 있으면 제외
   return Object.keys(wd.students||{}).length>0;       // 비울 게 있을 때만
 }
 // ── 통계 집계 대상 주차인가 ──
-// 통계는 "이번 학기에 실제로 진행한 주차"만 세야 한다.
-// 출석·단복·암송·시상·게임 중 무엇이든 한 번이라도 입력하면 그 주차에 _savedAt 이 찍히고,
-// 리셋으로만 만들어진 주차(=아직 진행 안 함)에는 없다.
-// → 학기 전환 직후에는 모든 주차가 집계에서 빠져 누적이 0이 된다.
+// 두 조건을 모두 만족해야 센다.
+//   ⑴ 실제 활동 흔적이 있을 것 (weekHasActivity)
+//       → 전원 출석 기본값만 들어 있는 주차는 제외
+//   ⑵ 끝난 주차일 것 : 게임 확정 또는 마감(잠금)
+//       → 진행 중인 주차는 아직 집계하지 않음 (우승·준우승과 같은 기준)
 function isCountedWeek(w){
   w=Number(w);
-  if(w<=0) return false;               // 테스트 주차 제외
-  return !!S.wdata[w]?._savedAt;
+  if(w<=0) return false;                              // 테스트 주차 제외
+  const wd=S.wdata[w];
+  if(!wd || !weekHasActivity(wd)) return false;       // ⑴
+  return !!wd.gameFinalized || S.closedWeeks.includes(w);  // ⑵
 }
+// 지금 통계에 잡히는 주차 목록
+function countedWeeks(){return WEEKS.filter(isCountedWeek);}
 // 통계 화면에 실제로 표시되는 전체 핸드북 누적
 function totalCumHb(){
   return TEAMS.reduce((sum,t)=>sum+Object.entries(S.wdata).reduce(
@@ -1500,11 +1525,21 @@ function buildHbDetail(hb){
     SP({fontWeight:"700",fontSize:"18px",color:"#1E293B"},hb)
   );
 
-  const noticeBanner=D({display:"flex",alignItems:"center",gap:"8px",
+  // 점수 안내 — 스팍스/티앤티가 다르다. 점수는 설정값(서명 1개 점수)을 따라간다
+  const _isTntHb=getAwardGroup(hb)==="tnt";
+  const _sg=S.settings.signScore??50;
+  const _half=Math.round(_sg/2*10)/10;
+  const scoreGuide=`서명 1개 당 ${_sg}점, 교사 성경 암송 1절 당 ${_isTntHb?_half:_sg}점입니다.`;
+
+  const noticeBanner=D({display:"flex",alignItems:"flex-start",gap:"8px",
     background:"#F8FAFC",borderRadius:"10px",border:"1px solid #E2E8F0",
     padding:"9px 13px",marginBottom:"12px"},
-    SP({fontSize:"14px",flexShrink:"0"},"📌"),
-    SP({fontSize:"13px",color:"#94A3B8",fontWeight:"500"},"개수 조정 시 자동으로 저장됩니다.")
+    SP({fontSize:"14px",flexShrink:"0",lineHeight:"1.55"},"📌"),
+    D({},
+      D({fontSize:"13px",color:"#1E293B",fontWeight:"600",lineHeight:"1.55"},scoreGuide),
+      _isTntHb?D({fontSize:"12px",color:"#94A3B8",fontWeight:"500",lineHeight:"1.5",marginTop:"2px"},
+        `(예외: 복습 실버 과정은 절반 암송 당 ${_sg}점)`):null
+    )
   );
 
   const cards=stuList.map(s=>{
@@ -3227,7 +3262,10 @@ function buildStMgr(){
                 const isSpks=["행글라이더","윙러너","스카이스토머"].includes(next);
                 for(const w of Object.keys(S.wdata)){
                   const wd=S.wdata[w];
-                  if(wd?.students?.[s.id]){
+                  // 실제 시상 기록이 있는 주차만 손댄다.
+                  // 전원 출석 기본값만 있는 주차까지 건드리면 아직 진행도 안 한 주차에
+                  // 저장 흔적이 남아 통계가 오염된다.
+                  if(hasRealAward(wd?.students?.[s.id]?.awards)){
                     const ea=isSpks?{seals:[],badge:false,wing:false,enroll:false,gems:0}:{seals:[],award:false,enroll:false};
                     wd.students[s.id].awards=ea;
                     try{ await updateDoc(doc(db,"awana",`week_${w}`),{[`students.${s.id}.awards`]:ea,"_savedAt":Date.now()}); }
@@ -3736,8 +3774,13 @@ function buildStatsView(){
     return box;
   }
 
+  const cw=countedWeeks();
   return D({},
-    D({fontWeight:"600",fontSize:"14px",marginBottom:"10px",color:"#1E293B"},"팀 통계"),
+    D({display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"10px"},
+      SP({fontWeight:"600",fontSize:"14px",color:"#1E293B"},"팀 통계"),
+      SP({fontSize:"11px",color:"#94A3B8"},
+        cw.length?`집계 주차 ${cw.length}개 (${cw.join(", ")}주차)`:"아직 끝난 주차가 없어요")
+    ),
     D({display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"},
       ...TEAMS.map(t=>{
         const cumHb=Object.entries(S.wdata).reduce((sum,[wk,wd2])=>{
