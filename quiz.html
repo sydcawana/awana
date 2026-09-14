@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Awana 성경퀴즈 문제 생성기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: 'Nanum Gothic', 'Malgun Gothic', sans-serif;
+    background: #eaf6fb;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 460px; }
+  .head { text-align: center; margin-bottom: 26px; }
+  .head h1 { font-family: 'Jua', sans-serif; font-size: 28px; color: #4a94b0; margin: 0 0 6px; }
+  .head p { font-size: 15px; color: #7c93a0; margin: 0; }
+  .group { margin-bottom: 22px; }
+  .group-label {
+    font-size: 14px; font-weight: 700; color: #8aa5b2;
+    margin: 0 0 10px 6px; letter-spacing: .04em;
+  }
+  .btn {
+    display: block; width: 100%; text-decoration: none;
+    padding: 18px 20px; margin-bottom: 10px;
+    border-radius: 18px; font-size: 18px; font-weight: 700;
+    box-shadow: 0 3px 0 rgba(0,0,0,.06);
+    transition: transform .05s;
+  }
+  .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.06); }
+  .btn .sub { display: block; font-size: 13px; font-weight: 400; opacity: .85; margin-top: 3px; }
+  .btn-sparks { background: #7ec8e3; color: #fff; }
+  .btn-sparks:hover { background: #6bbcd9; }
+  .btn-tnt { background: #4a6a8a; color: #fff; }
+  .btn-tnt:hover { background: #3f5c78; }
+  .foot { text-align: center; font-size: 13px; color: #a9bcc6; margin-top: 20px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <h1>⭐ Awana 성경퀴즈</h1>
+      <p>어와나 퀴즈대회 대비 · 핸드북을 골라 주세요</p>
+    </div>
+
+    <div class="group">
+      <p class="group-label">☁ SPARKS (스팍스)</p>
+      <a class="btn btn-sparks" href="sparks-hangglider.html">
+        행글라이더
+        <span class="sub">Hang Glider</span>
+      </a>
+      <a class="btn btn-sparks" href="sparks-wingrunner.html">
+        윙러너
+        <span class="sub">Wing Runner</span>
+      </a>
+      <a class="btn btn-sparks" href="sparks-skystormer.html">
+        스카이스토머
+        <span class="sub">Sky Stormer</span>
+      </a>
+    </div>
+
+    <div class="group">
+      <p class="group-label">✝ T&amp;T (티앤티)</p>
+      <a class="btn btn-tnt" href="tnt-challenge1.html">
+        챌린지1
+        <span class="sub">Challenge 1</span>
+      </a>
+      <a class="btn btn-tnt" href="tnt-challenge2.html">
+        챌린지2
+        <span class="sub">Challenge 2</span>
+      </a>
+      <a class="btn btn-tnt" href="tnt-adventure1.html">
+        어드벤처1
+        <span class="sub">Adventure 1</span>
+      </a>
+      <a class="btn btn-tnt" href="tnt-adventure2.html">
+        어드벤처2
+        <span class="sub">Adventure 2</span>
+      </a>
+    </div>
+
+    <p class="foot">SYDC AWANA</p>
+  </div>
+</body>
+</html>
