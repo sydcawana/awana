@@ -948,21 +948,23 @@ function buildSet(handbook, quizType, seed, opts = {}) {
       items = plan.map(f => f(p));
       reserve = [SP.fullRecite(p), SP.answerToSource(p)];
     } else if (t === "괄호채우기") {
-      const levels = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1, 2, 3, 4];
+      const levels = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1];
       const fnByLevel = {
         1: CLOZE.level1,
         2: CLOZE.level2,
         3: CLOZE.level3,
         4: CLOZE.level4
       };
-      // 선택된 각 단계마다 3문항씩
-      const plan = [];
+      // 괄호 채우기는 시드와 무관: 선택된 단원의 말씀 전체를 핸드북 순서대로,
+      // 선택된 각 단계마다 한 번씩 모두 낸다. (빈칸 위치도 고정 시드로 항상 같게)
+      const fixedRng = makeRng(1);
       for (const lv of [1, 2, 3, 4]) {
-        if (levels.includes(lv)) {
-          plan.push(fnByLevel[lv], fnByLevel[lv], fnByLevel[lv]);
+        if (!levels.includes(lv)) continue;
+        for (const r of rows) {
+          if (lv === 1 && !(r.키워드 && r.키워드.length)) continue; // 핵심단어 없는 말씀은 1단계 제외
+          items.push(fnByLevel[lv]({ pickRow: () => r, rng: fixedRng }));
         }
       }
-      items = plan.map(f => f(p));
     } else if (t === "고난도") {
       const plan = [HARD.commonVocab, HARD.oddOneOut, HARD.keywordsToSource, HARD.versesToAnswer, HARD.commonVocab, HARD.keywordsToSource];
       items = plan.map(f => f(p));
@@ -972,8 +974,8 @@ function buildSet(handbook, quizType, seed, opts = {}) {
     }
     let label;
     if (t === "필기") label = "필기시험 (15문항)";else if (t === "객관식") label = "객관식 문제 (8문항 + 예비 2)";else if (t === "스피드") label = "스피드 문제 (10문항 + 예비 2)";else if (t === "괄호채우기") {
-      const lv = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1, 2, 3, 4];
-      label = `괄호 채우기 (${lv.join("·")}단계, 각 3문항)`;
+      const lv = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1];
+      label = `괄호 채우기 (${lv.join("·")}단계 · 말씀 전체 ${items.length}문항)`;
     } else label = "고난도 심화 (6문항)";
     sections.push({
       type: t,
@@ -1004,7 +1006,7 @@ function QuizGenerator({
   const [seedInput, setSeedInput] = useState("");
   const [showAnswers, setShowAnswers] = useState(false);
   const [printHint, setPrintHint] = useState(false);
-  const [clozeLevels, setClozeLevels] = useState([1, 2, 3, 4]);
+  const [clozeLevels, setClozeLevels] = useState([1]); // 괄호는 한 단계만 선택
   const [units, setUnits] = useState([1, 2, 3, 4]);
 
   // 마운트 시 CSV 로드
@@ -1029,7 +1031,7 @@ function QuizGenerator({
     units
   }) : [], [loaded, handbook, quizType, seed, clozeLevels, units]);
   const toggleLevel = lv => {
-    setClozeLevels(prev => prev.includes(lv) ? prev.filter(x => x !== lv) : [...prev, lv].sort());
+    setClozeLevels([lv]);
   };
   const toggleUnit = u => {
     setUnits(prev => prev.includes(u) ? prev.length > 1 ? prev.filter(x => x !== u) : prev : [...prev, u].sort());
@@ -1463,11 +1465,12 @@ function QuizGenerator({
     className: `chip num ${clozeActive && clozeLevels.includes(lv) ? "on" : ""}`,
     title: `괄호 ${lv}단계`
   }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
+    type: "radio",
+    name: "clozeLevel",
     disabled: !clozeActive,
     checked: clozeLevels.includes(lv),
     onChange: () => toggleLevel(lv)
-  }), lv)))), /*#__PURE__*/React.createElement("div", {
+  }), lv)))), quizType !== "괄호채우기" && /*#__PURE__*/React.createElement("div", {
     className: "ctrl"
   }, /*#__PURE__*/React.createElement("label", {
     className: "lbl",
@@ -1504,7 +1507,7 @@ function QuizGenerator({
     className: "stamp"
   }, /*#__PURE__*/React.createElement("span", {
     className: `mode ${showAnswers ? "answer" : ""}`
-  }, showAnswers ? "답지 (교사용)" : "문제지"), "seed ", seed, " · ", totalCount, "문항")), /*#__PURE__*/React.createElement("div", {
+  }, showAnswers ? "답지 (교사용)" : "문제지"), quizType === "괄호채우기" ? "" : `seed ${seed} · `, totalCount, "문항")), /*#__PURE__*/React.createElement("div", {
     className: "ident"
   }, /*#__PURE__*/React.createElement("div", {
     className: "k"
