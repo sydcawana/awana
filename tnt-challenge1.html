@@ -17,7 +17,7 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 </head>
 <body>
-<a class="homelink" href="index.html">← 메뉴</a>
+<a class="homelink" href="quiz.html">← 메뉴</a>
 <div id="root"><div id="status">불러오는 중…</div></div>
 <script>
   window.addEventListener("load", function () {
@@ -1090,7 +1090,7 @@ function QuizGenerator({
         lineHeight: 1.7
       }
     }, "이 페이지는 웹서버에서 열어야 데이터(CSV)를 읽을 수 있습니다.", /*#__PURE__*/React.createElement("br", null), "GitHub Pages 주소에서 열거나, 로컬이라면 이 폴더에서 ", /*#__PURE__*/React.createElement("b", null, "python -m http.server"), " 를 실행한 뒤 localhost 주소로 여세요.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("br", null), "(오류: ", loadError, ")"), /*#__PURE__*/React.createElement("a", {
-      href: "index.html",
+      href: "quiz.html",
       style: {
         color: "#b68235",
         fontWeight: 700
@@ -1309,8 +1309,21 @@ function QuizGenerator({
           .deck { max-width:none; margin:0; padding:0; }
           .sheet { box-shadow:none; background:#fff; padding:0; }
           .item { break-inside:avoid; }
-          .quiz-section { margin-top:28px; }
-          .item { padding:20px 0 22px; }
+          .quiz-section { margin-top:22px; }
+          /* 인쇄 시 줄 간격·문항 간격을 좁혀 한 페이지에 더 많이 */
+          .item { padding:11px 0 12px; }
+          .masthead { margin-bottom:0; }
+          .q-lead, .opt, .ans { line-height:1.6; }
+          .sub, .verse { line-height:1.7; margin-top:5px; }
+          .opt { margin-top:3px; }
+          .blanks { gap:9px 26px; margin-top:8px; }
+          .bl .line { min-height:21px; }
+          .match2 { gap:12px 30px; margin-top:8px; }
+          .m-col { gap:6px; }
+          .m-cell { line-height:1.6; }
+          .ans { margin-top:6px; }
+          .reserve { margin-top:16px; }
+          .foot { margin-top:24px; }
           .quiz-section.pagebreak { break-before:page; page-break-before:always; }
           .masthead, .section-head { break-after:avoid; }
           /* 흑백 인쇄: 금색은 검정으로, 배경 채색 제거 */
