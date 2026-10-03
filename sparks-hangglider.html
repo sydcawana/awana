@@ -821,7 +821,7 @@ function buildSet(handbook, quizType, seed, opts = {}) {
   const hasFacts = extra.facts.length > 0;
   const rng = makeRng(seed);
   const sections = [];
-  const types = quizType === "전체" ? ["필기", "객관식", "괄호채우기"] : [quizType];
+  const types = quizType === "전체" ? ["괄호채우기", "객관식", "필기"] : [quizType]; // 쉬운 것부터
   for (const t of types) {
     const p = new Picker(rows, vocabs, rng, sparksWords, promoIds, extra);
     let items = [];
@@ -908,6 +908,11 @@ function SparksQuiz({
   const sections = useMemo(() => loaded ? buildSet(handbook, quizType, seed, {
     clozeLevel
   }) : [], [loaded, handbook, quizType, seed, clozeLevel]);
+  // PDF로 저장할 때 파일명 = 문서 제목 → 핸드북·유형·시드(괄호만이면 단계)·문제지/답지
+  React.useEffect(() => {
+    const key = quizType === "괄호채우기" ? `괄호${clozeLevel}단계` : `seed${seed}`;
+    document.title = `Sparks ${displayName}_${quizType}_${key}_${showAnswers ? "답지" : "문제지"}`;
+  }, [displayName, quizType, seed, clozeLevel, showAnswers]);
   const clozeActive = quizType === "괄호채우기" || quizType === "전체";
   const clozeOnly = quizType === "괄호채우기";
   const regenerate = () => {
@@ -1081,7 +1086,7 @@ function SparksQuiz({
     id: "qt",
     value: quizType,
     onChange: e => setQuizType(e.target.value)
-  }, ["전체", "필기", "객관식", "괄호채우기"].map(t => /*#__PURE__*/React.createElement("option", {
+  }, ["전체", "괄호채우기", "객관식", "필기"].map(t => /*#__PURE__*/React.createElement("option", {
     key: t
   }, t)))), clozeActive && /*#__PURE__*/React.createElement("div", {
     className: "ctrl"
