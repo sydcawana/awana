@@ -1138,7 +1138,7 @@ function SparksQuiz({
     className: "title"
   }, "⭐ Sparks 성경퀴즈 〈", handbook, "〉"), /*#__PURE__*/React.createElement("span", {
     className: `mode ${showAnswers ? "answer" : ""}`
-  }, showAnswers ? "답지 (선생님용)" : "문제지")), /*#__PURE__*/React.createElement("div", {
+  }, showAnswers ? "답지 (선생님용)" : "문제지", !clozeOnly && ` · seed ${seed}`)), /*#__PURE__*/React.createElement("div", {
     className: "name-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "k"
