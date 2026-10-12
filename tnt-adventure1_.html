@@ -54,6 +54,39 @@
     .app-root .iseg-opt { width:30px; height:28px; }
     .app-root .btn { min-height:32px; padding:0 12px; font-size:13px; }
   }
+  /* 객관식 보기 나란히 */
+  .app-root .opts { display:grid; column-gap:18px; margin-top:4px; }
+  .app-root .opts.cols3 { grid-template-columns:repeat(3, 1fr); }
+  .app-root .opts.cols2 { grid-template-columns:repeat(2, 1fr); }
+  .app-root .opts.cols1 { grid-template-columns:1fr; }
+  .app-root .opts .opt { margin-top:3px; }
+  @media (max-width:600px) { .app-root .opts.cols3, .app-root .opts.cols2 { grid-template-columns:1fr; } }
+  /* 인쇄: 유형별로 정해진 문항 수마다 새 페이지 */
+  @media print { .app-root .item.pg-break, .app-root .cz-item.pg-break { break-before:page; page-break-before:always; } }
+  /* 인쇄 압축(객관식·필기·스피드·고난도): 10문항이 한 페이지에 들어가도록 */
+  @media print {
+    .app-root .item { padding:4px 0 5px; }
+    .app-root .item .no { line-height:1.5; }
+    .app-root .q-lead { line-height:1.45; }
+    .app-root .tag { font-size:9.5px; padding:0 5px; }
+    .app-root .sub, .app-root .verse { line-height:1.55; margin-top:3px; }
+    .app-root .opts { margin-top:2px; }
+    .app-root .opts .opt { margin-top:1px; line-height:1.45; }
+    .app-root .blanks { gap:6px 24px; margin-top:5px; }
+    .app-root .bl .line { min-height:20px; }
+    .app-root .match2 { gap:6px 26px; margin-top:5px; }
+    .app-root .m-col { gap:4px; }
+    .app-root .m-cell { line-height:1.5; }
+    .app-root .ans { margin-top:4px; line-height:1.5; }
+    .app-root .opts .opt { font-size:12.5px; }
+    .app-root .q-lead, .app-root .sub, .app-root .verse { font-size:12.8px; }
+    .app-root .masthead h2 { font-size:21px; }
+    .app-root .masthead-row { margin-top:0; }
+    .app-root .ident .k { padding:4px 10px 4px 0; }
+    .app-root .ident .v { margin-bottom:5px; height:16px; }
+    .app-root .section-head { padding-bottom:4px; }
+    .app-root .foot { display:none; } /* 맺음말 한 줄이 빈 페이지를 만들지 않게 */
+  }
 </style>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1015,7 +1048,7 @@ function buildSet(handbook, quizType, seed, opts = {}) {
       items = plan.map(f => f(p));
     }
     let label;
-    if (t === "필기") label = "필기시험 (15문항)";else if (t === "객관식") label = "객관식 문제 (8문항 + 예비 2)";else if (t === "스피드") label = "스피드 문제 (10문항 + 예비 2)";else if (t === "괄호채우기") {
+    if (t === "필기") label = "필기시험 (15문항)";else if (t === "객관식") label = "객관식 문제 (8문항)";else if (t === "스피드") label = "스피드 문제 (10문항)";else if (t === "괄호채우기") {
       const lv = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1];
       label = `괄호 채우기 (${lv.join("·")}단계 · 말씀 전체 ${items.length}문항)`;
     } else label = "고난도 심화 (6문항)";
@@ -1114,7 +1147,7 @@ function QuizGenerator({
     setPrintHint(true);
   };
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-  const totalCount = sections.reduce((n, s) => n + s.items.length + s.reserve.length, 0);
+  const totalCount = sections.reduce((n, s) => n + s.items.length + (SHOW_RESERVE ? s.reserve.length : 0), 0);
   const pad2 = n => String(n).padStart(2, "0");
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
@@ -1354,7 +1387,7 @@ function QuizGenerator({
         }
 
         @media print {
-          @page { margin:14mm; }
+          @page { margin:11mm 12mm; }
           .console, .note { display:none !important; }
           .app-root { background:#fff; font-size:13px; }
           .deck { max-width:none; margin:0; padding:0; }
@@ -1598,14 +1631,15 @@ function QuizGenerator({
     key: i,
     no: `${i + 1}.`,
     it: it,
-    showAnswers: showAnswers
-  })), sec.reserve.length > 0 && /*#__PURE__*/React.createElement("div", {
+    showAnswers: showAnswers,
+    pageBreak: !showAnswers && i > 0 && i % (PER_PAGE[sec.type] || 999) === 0
+  })), SHOW_RESERVE && sec.reserve.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "reserve"
   }, /*#__PURE__*/React.createElement("span", {
     className: "lbl"
   }, "예비 문제"), /*#__PURE__*/React.createElement("span", {
     className: "r"
-  })), sec.reserve.map((it, i) => /*#__PURE__*/React.createElement(Item, {
+  })), SHOW_RESERVE && sec.reserve.map((it, i) => /*#__PURE__*/React.createElement(Item, {
     key: `r${i}`,
     no: `예비 ${i + 1}`,
     reserve: true,
@@ -1661,43 +1695,50 @@ function ClozeItem({ no, it, showAnswers }) {
   return h("div", { className: `cz-item ${pg}` }, h("div", { className: "cz-no" }, no),
     h("div", { className: "cz-body" }, head, " “", body, "”"));
 }
+// 보기(A/B/C)는 한 줄에 나란히: 짧으면 3칸, 보통 2칸, 아주 길면 1칸
+function renderQLines(lines) {
+  const h = React.createElement;
+  const out = [];
+  let opts = [];
+  const flush = () => {
+    if (!opts.length) return;
+    const maxLen = Math.max(...opts.map(o => String(o[2]).length));
+    const cols = maxLen <= 20 ? 3 : maxLen <= 42 ? 2 : 1;
+    out.push(h("div", { key: `o${out.length}`, className: `opts cols${cols}` }, opts.map(o => h("div", { key: o[1], className: "opt" },
+      h("span", { className: "opt-k" }, o[1], ")"), h("span", null, o[2])))));
+    opts = [];
+  };
+  lines.forEach((ln, i) => {
+    const opt = /^([ABC])\)\s*([\s\S]*)$/.exec(ln);
+    if (opt) { opts.push(opt); return; }
+    flush();
+    const t = String(ln).trim();
+    if (t.startsWith("\"") || t.startsWith("(") || t.startsWith("<")) out.push(h("div", { key: i, className: "verse" }, ln));
+    else out.push(h("div", { key: i, className: "sub" }, ln));
+  });
+  flush();
+  return out;
+}
+// 인쇄 시 한 페이지에 넣을 문항 수 (괄호 채우기는 CZ_PER_PAGE로 따로)
+const PER_PAGE = { "객관식": 10, "필기": 8, "스피드": 10, "고난도": 10 }; // 필기는 10문항이 넘쳐서 8문항
+const SHOW_RESERVE = false; // 예비 문제는 출력하지 않음
 function Item({
   no,
   it,
   showAnswers,
-  reserve
+  reserve,
+  pageBreak
 }) {
   if (it.cloze) return React.createElement(ClozeItem, { no, it, showAnswers });
   return /*#__PURE__*/React.createElement("div", {
-    className: `item ${reserve ? "is-reserve" : ""}`
+    className: `item ${reserve ? "is-reserve" : ""} ${pageBreak ? "pg-break" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "no"
   }, no), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "q-lead"
   }, /*#__PURE__*/React.createElement("span", {
     className: "tag"
-  }, it.tag), it.q[0]), it.q.slice(1).map((ln, i) => {
-    const opt = /^([ABC])\)\s*([\s\S]*)$/.exec(ln);
-    if (opt) {
-      return /*#__PURE__*/React.createElement("div", {
-        key: i,
-        className: "opt"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "opt-k"
-      }, opt[1], ")"), /*#__PURE__*/React.createElement("span", null, opt[2]));
-    }
-    const t = String(ln).trim();
-    if (t.startsWith("\"") || t.startsWith("(") || t.startsWith("<")) {
-      return /*#__PURE__*/React.createElement("div", {
-        key: i,
-        className: "verse"
-      }, ln);
-    }
-    return /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: "sub"
-    }, ln);
-  }), it.match2col && /*#__PURE__*/React.createElement("div", {
+  }, it.tag), it.q[0]), renderQLines(it.q.slice(1)), it.match2col && /*#__PURE__*/React.createElement("div", {
     className: "match2"
   }, /*#__PURE__*/React.createElement("div", {
     className: "m-col"
