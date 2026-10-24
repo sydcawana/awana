@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>T&T 성경퀴즈 · 챌린지2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Lora:ital,wght@0,400;0,500;1,400&family=Nanum+Myeongjo:wght@400;700&display=swap" />
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: 'Lora', 'Nanum Myeongjo', serif; }
@@ -15,6 +18,83 @@
   /* 메뉴 버튼이 제목을 가리지 않도록 제목 줄을 오른쪽으로 민다 */
   .topbar { padding-left:130px !important; }
   .console-title { padding-left:110px; }
+  /* 괄호 채우기 압축 조판 */
+  .cz-item { display:grid; grid-template-columns:2.2em 1fr; column-gap:10px; padding:7px 0 8px; border-bottom:1px dotted #d9d6d0; break-inside:avoid; }
+  .cz-no { text-align:right; font-weight:700; line-height:2.2; }
+  .cz-body { line-height:2.2; }
+  .cz-head { font-weight:700; margin-right:4px; white-space:nowrap; }
+  .cz-hole { white-space:nowrap; }
+  .cz-blank { display:inline-block; max-width:80vw; }
+  .cz-blank.on { color:var(--acc-d, #d16b6b); font-weight:700; padding:0 .3em; }
+  .cz-lines { margin-top:2px; }
+  .cz-line { height:30px; line-height:30px; border-bottom:1px solid #b9b5ad; }
+  .cz-ans4 { color:var(--acc-d, #d16b6b); font-weight:700; line-height:1.9; }
+  @media print {
+    .app-root .masthead { padding-top:8px; }
+    .app-root .masthead h2 { font-size:24px; margin-top:2px; }
+    .app-root .ident .k { padding:6px 12px 6px 0; }
+    .app-root .quiz-section { margin-top:12px; }
+    .app-root .section-head h3 { font-size:17px; }
+    .cz-body { line-height:1.95; }
+    .cz-item { padding:2px 0 3px !important; }
+    .cz-line { height:26px; line-height:26px; }
+  }
+  @media print { .cz-item.cz-pg { break-before:page; page-break-before:always; } .cz-item { padding:4px 0 5px; } .cz-blank.on, .cz-ans4 { color:#000 !important; } .cz-blank { max-width:none; } }
+  /* 선택된 칩·세그먼트에 은은한 배경 */
+  .app-root .chip.on, .app-root .seg-opt.on, .app-root .iseg-opt.on { background:rgba(182,130,53,.12); }
+  /* 모바일: 메뉴 버튼을 줄이고, 콘솔은 고정을 풀어 본문을 가리지 않게 */
+  @media (max-width:600px) {
+    .homelink { top:8px; left:8px; padding:5px 9px; font-size:12px; }
+    .app-root .console { position:static; padding:10px 12px 12px; }
+    .app-root .console-title { padding-left:68px; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+    .app-root .console h1 { font-size:16px; }
+    .app-root .chip { min-height:32px; padding:0 9px; font-size:12px; }
+    .app-root .chip.num { width:30px; padding:0; }
+    .app-root .seg-opt { min-height:32px; padding:0 10px; font-size:12px; }
+    .app-root .iseg-opt { width:30px; height:28px; }
+    .app-root .btn { min-height:32px; padding:0 12px; font-size:13px; }
+  }
+  /* 객관식 보기 나란히 */
+  .app-root .opts { display:grid; column-gap:18px; margin-top:4px; }
+  .app-root .opts.cols3 { grid-template-columns:repeat(3, 1fr); }
+  .app-root .opts.cols2 { grid-template-columns:repeat(2, 1fr); }
+  .app-root .opts.cols1 { grid-template-columns:1fr; }
+  .app-root .opts .opt { margin-top:3px; }
+  @media (max-width:600px) { .app-root .opts.cols3, .app-root .opts.cols2 { grid-template-columns:1fr; } }
+  /* 인쇄: 유형별로 정해진 문항 수마다 새 페이지 */
+  @media print { .app-root .item.pg-break, .app-root .cz-item.pg-break { break-before:page; page-break-before:always; } }
+  /* 인쇄 조판(객관식·필기·스피드·고난도): 10문항이 한 페이지에, 그래도 여유 있게 */
+  @media print {
+    .app-root .item { padding:6px 5% 7px 0; }
+    .app-root .item .no { line-height:1.6; }
+    .app-root .q-lead { font-size:12.5px; line-height:1.45; }
+    .app-root .tag { font-size:9.5px; padding:0 5px; }
+    .app-root .sub, .app-root .verse { font-size:12.2px; line-height:1.45; margin-top:3px; }
+    .app-root .opts { margin:2px 0 0 1.2em; display:flex; flex-wrap:wrap; column-gap:28px; row-gap:0; }
+    .app-root .opts .opt { flex:0 1 auto; min-width:calc(33.3% - 19px); max-width:100%; display:grid; }
+    .app-root .opts.cols2 .opt { min-width:calc(50% - 14px); }
+    .app-root .opts.cols1 .opt { flex-basis:100%; }
+    .app-root .opts .opt { margin-top:0; font-size:12px; line-height:1.45; grid-template-columns:1.6em 1fr; }
+    .app-root .opt-k { font-size:12px; }
+    .app-root .blanks { gap:7px 28px; margin-top:6px; }
+    .app-root .bl .line { min-height:21px; }
+    .app-root .match2 { gap:7px 30px; margin-top:6px; }
+    .app-root .m-col { gap:5px; }
+    .app-root .m-cell { line-height:1.55; }
+    .app-root .ans { margin-top:4px; line-height:1.5; }
+    .app-root .masthead h2 { font-size:18px; margin-top:0; }
+    .app-root .masthead-row { padding-bottom:4px; }
+    .app-root .masthead-row { margin-top:0; }
+    .app-root .ident .k { padding:2px 10px 2px 0; }
+    .app-root .ident .v { margin-bottom:5px; height:16px; }
+    .app-root .section-head { padding-bottom:3px; align-items:flex-end; }
+    .app-root .section-head .n { display:none; }
+    .app-root .section-head h3 { font-size:16px; margin:0; }
+    .app-root .masthead { padding-top:6px; }
+    .app-root .masthead-row { align-items:center; }
+    .app-root .quiz-section { margin-top:8px; }
+    .app-root .foot { display:none; } /* 맺음말 한 줄이 빈 페이지를 만들지 않게 */
+  }
 </style>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -945,11 +1025,12 @@ function buildSet(handbook, quizType, seed, opts = {}) {
     if (t === "객관식") {
       const plan = [MC.themeQuestion, MC.completeVerse, MC.matchPair, MC.wordMeaning, MC.findAnswer, MC.findSource, MC.findSourceByStart, rng.choice([MC.wordMeaning, MC.findSource, MC.findAnswer])];
       items = plan.map(f => f(p));
-      reserve = [MC.memorizeOrder(p), MC.findSourceByStart(p)];
+      // 예비 없이 10문항: 예비로 쓰던 2문항을 본 문항에 합침
+      items = items.concat([MC.memorizeOrder(p), MC.findSourceByStart(p)]);
     } else if (t === "스피드") {
       const plan = [SP.blankWord, SP.answerToSource, SP.sourceToQuestion, SP.wordMeaning, SP.sourceAndRecite, SP.questionSourceToAnswer, SP.quoteToSource, SP.continueRecite, SP.fullRecite, rng.choice([SP.blankWord, SP.answerToSource, SP.wordMeaning])];
       items = plan.map(f => f(p));
-      reserve = [SP.fullRecite(p), SP.answerToSource(p)];
+      // 예비 문제 없음 (10문항)
     } else if (t === "괄호채우기") {
       const levels = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1];
       const fnByLevel = {
@@ -965,21 +1046,22 @@ function buildSet(handbook, quizType, seed, opts = {}) {
         if (!levels.includes(lv)) continue;
         for (const r of rows) {
           if (lv === 1 && !(r.키워드 && r.키워드.length)) continue; // 핵심단어 없는 말씀은 1단계 제외
-          items.push(fnByLevel[lv]({ pickRow: () => r, rng: fixedRng }));
+          items.push(toClozeItem(lv, r, fnByLevel[lv]({ pickRow: () => r, rng: fixedRng })));
         }
       }
     } else if (t === "고난도") {
-      const plan = [HARD.commonVocab, HARD.oddOneOut, HARD.keywordsToSource, HARD.versesToAnswer, HARD.commonVocab, HARD.keywordsToSource];
+      const plan = [HARD.commonVocab, HARD.oddOneOut, HARD.keywordsToSource, HARD.versesToAnswer, HARD.commonVocab, HARD.keywordsToSource, HARD.oddOneOut, HARD.versesToAnswer, HARD.commonVocab, HARD.keywordsToSource]; // 10문항
       items = plan.map(f => f(p));
     } else {
-      const plan = [WR.fillBlanks, WR.fillBlanks, WR.writeSourceVerse, p => WR.ox(p, true), p => WR.ox(p, false), p => WR.ox(p, rng.rand() < 0.5), WR.completeBack, WR.writeQA, WR.writeQA, WR.matchWords, WR.wordMeaningWrite, WR.commonWord, WR.fullRecite, WR.shortAnswer, WR.listAnswers];
+      // 10문항: 통암송(괄호 4단계와 겹침)·답 나열·중복 유형을 빼고 골고루
+      const plan = [WR.fillBlanks, WR.writeSourceVerse, p => WR.ox(p, true), p => WR.ox(p, false), WR.completeBack, WR.writeQA, WR.matchWords, WR.wordMeaningWrite, WR.commonWord, WR.shortAnswer];
       items = plan.map(f => f(p));
     }
     let label;
-    if (t === "필기") label = "필기시험 (15문항)";else if (t === "객관식") label = "객관식 문제 (8문항 + 예비 2)";else if (t === "스피드") label = "스피드 문제 (10문항 + 예비 2)";else if (t === "괄호채우기") {
+    if (t === "필기") label = `필기시험 (${items.length}문항)`;else if (t === "객관식") label = `객관식 문제 (${items.length}문항)`;else if (t === "스피드") label = `스피드 문제 (${items.length}문항)`;else if (t === "괄호채우기") {
       const lv = opts.clozeLevels && opts.clozeLevels.length ? opts.clozeLevels : [1];
       label = `괄호 채우기 (${lv.join("·")}단계 · 말씀 전체 ${items.length}문항)`;
-    } else label = "고난도 심화 (6문항)";
+    } else label = `고난도 심화 (${items.length}문항)`;
     sections.push({
       type: t,
       label,
@@ -1064,13 +1146,18 @@ function QuizGenerator({
     setSeedInput("");
   };
   const handlePrint = () => {
-    try {
-      window.print();
-    } catch (e) {}
+    // 웹폰트가 다 받아진 뒤에 인쇄 창을 연다 (최대 3초 대기)
+    const go = () => {
+      try {
+        window.print();
+      } catch (e) {}
+    };
+    const ready = document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]) : Promise.resolve();
+    ready.then(go, go);
     setPrintHint(true);
   };
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-  const totalCount = sections.reduce((n, s) => n + s.items.length + s.reserve.length, 0);
+  const totalCount = sections.reduce((n, s) => n + s.items.length + (SHOW_RESERVE ? s.reserve.length : 0), 0);
   const pad2 = n => String(n).padStart(2, "0");
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
@@ -1119,7 +1206,6 @@ function QuizGenerator({
   return /*#__PURE__*/React.createElement("div", {
     className: "app-root"
   }, /*#__PURE__*/React.createElement("style", null, `
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Lora:ital,wght@0,400;0,500;1,400&family=Nanum+Myeongjo:wght@400;700&display=swap');
 
         .app-root {
           --paper:#fbfaf8; --ink:#201f1d; --acc:#b68235; --acc-d:#7d5411;
@@ -1240,7 +1326,7 @@ function QuizGenerator({
         .stamp .mode { display:block; font-size:14px; letter-spacing:.1em; color:var(--ink); }
         .stamp .mode.answer { color:var(--acc-d); }
 
-        .ident { display:grid; grid-template-columns:auto 1fr auto 1fr auto 1fr;
+        .ident { display:grid; grid-template-columns:auto 1fr auto 1fr;
           border-bottom:1px solid var(--div); }
         .ident .k { font-family:var(--f-head); font-size:11px; letter-spacing:.12em;
           color:var(--mute); padding:11px 12px 11px 0; align-self:end; }
@@ -1311,7 +1397,7 @@ function QuizGenerator({
         }
 
         @media print {
-          @page { margin:14mm; }
+          @page { margin:9mm 11mm; }
           .console, .note { display:none !important; }
           .app-root { background:#fff; font-size:13px; }
           .deck { max-width:none; margin:0; padding:0; }
@@ -1532,10 +1618,6 @@ function QuizGenerator({
     className: "ident"
   }, /*#__PURE__*/React.createElement("div", {
     className: "k"
-  }, "교회"), /*#__PURE__*/React.createElement("div", {
-    className: "v"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "k"
   }, "학년"), /*#__PURE__*/React.createElement("div", {
     className: "v"
   }), /*#__PURE__*/React.createElement("div", {
@@ -1555,14 +1637,15 @@ function QuizGenerator({
     key: i,
     no: `${i + 1}.`,
     it: it,
-    showAnswers: showAnswers
-  })), sec.reserve.length > 0 && /*#__PURE__*/React.createElement("div", {
+    showAnswers: showAnswers,
+    pageBreak: !showAnswers && i > 0 && i % (PER_PAGE[sec.type] || 999) === 0
+  })), SHOW_RESERVE && sec.reserve.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "reserve"
   }, /*#__PURE__*/React.createElement("span", {
     className: "lbl"
   }, "예비 문제"), /*#__PURE__*/React.createElement("span", {
     className: "r"
-  })), sec.reserve.map((it, i) => /*#__PURE__*/React.createElement(Item, {
+  })), SHOW_RESERVE && sec.reserve.map((it, i) => /*#__PURE__*/React.createElement(Item, {
     key: `r${i}`,
     no: `예비 ${i + 1}`,
     reserve: true,
@@ -1575,42 +1658,97 @@ function QuizGenerator({
 
 // ✅ [UI] 한 문제를 그리는 컴포넌트 — 값의 이름(q, a, tag, src, blanks, match2col)은 그대로,
 //    줄 종류(보기 A/B/C · 인용 구절 · 일반 줄)만 알아보고 다르게 조판합니다.
+// ==================== 괄호 채우기: 압축 조판 ====================
+// "[1단계] 출처  "...(        )..."" 한 문단으로, 빈칸은 본문 안에 괄호로 넣는다.
+function toClozeItem(lv, r, it) {
+  const ans = {};
+  (it.blanks || []).forEach(b => { ans[b.no] = b.text; });
+  if (lv === 4) {
+    it.cloze = { level: 4, ref: rowRef(r), parts: [], answer: r.말씀, lines: Math.max(2, Math.ceil((r.말씀.length + 14) / 46)) };
+    return it;
+  }
+  let src = String(it.q[1] || "").trim().replace(/^"|"$/g, "");
+  if (lv === 3) src = src; // 3단계는 앞부분 + (1)(2)…
+  const parts = [];
+  const re = /\((\d+)\)/g;
+  let last = 0, m;
+  while ((m = re.exec(src))) {
+    if (m.index > last) parts.push(src.slice(last, m.index));
+    const no = Number(m[1]);
+    parts.push({ no, text: ans[no] || "" });
+    last = re.lastIndex;
+  }
+  if (last < src.length) parts.push(src.slice(last));
+  it.cloze = { level: lv, ref: rowRef(r), parts };
+  return it;
+}
+const CZ_PER_PAGE = 10;
+function ClozeItem({ no, it, showAnswers }) {
+  const c = it.cloze;
+  const h = React.createElement;
+  const head = h("span", { className: "cz-head" }, `[${c.level}단계] ${c.ref}`);
+  // 인쇄 시 괄호 문제를 CZ_PER_PAGE 문항마다 새 페이지에서 시작 (0이면 안 나눔)
+  const pg = CZ_PER_PAGE && Number(no) > 1 && (Number(no) - 1) % CZ_PER_PAGE === 0 ? "cz-pg" : "";
+  if (c.level === 4) {
+    return h("div", { className: `cz-item ${pg}` }, h("div", { className: "cz-no" }, no),
+      showAnswers ? h("div", { className: "cz-body" }, head, " ", h("span", { className: "cz-ans4" }, c.answer))
+        : h("div", { className: "cz-lines" }, Array.from({ length: c.lines }, (_, i) => h("div", { key: i, className: "cz-line" }, i === 0 ? head : null))));
+  }
+  const body = c.parts.map((p, i) => typeof p === "string" ? h("span", { key: i }, p)
+    : h("span", { key: i, className: "cz-hole" }, "(",
+        h("span", { className: `cz-blank ${showAnswers ? "on" : ""}`, style: showAnswers ? null : { width: `${Math.min(24, Math.max(6, p.text.length * 1.6 + 3))}em` } }, showAnswers ? p.text : " "),
+      ")"));
+  return h("div", { className: `cz-item ${pg}` }, h("div", { className: "cz-no" }, no),
+    h("div", { className: "cz-body" }, head, " “", body, "”"));
+}
+// 보기(A/B/C)는 한 줄에 나란히: 짧으면 3칸, 보통 2칸, 아주 길면 1칸
+// 태그와 겹치는 "[○○ 문제입니다.]" 안내문은 빼고 질문만 남긴다
+function stripLead(q) {
+  return String(q).replace(/^\s*\[[^\]]*문제입니다\.\]\s*/, "");
+}
+function renderQLines(lines) {
+  const h = React.createElement;
+  const out = [];
+  let opts = [];
+  const flush = () => {
+    if (!opts.length) return;
+    const maxLen = Math.max(...opts.map(o => String(o[2]).length));
+    const cols = maxLen <= 18 ? 3 : maxLen <= 32 ? 2 : 1; // 긴 보기가 하나라도 있으면 세로로 가지런히
+    out.push(h("div", { key: `o${out.length}`, className: `opts cols${cols}` }, opts.map(o => h("div", { key: o[1], className: "opt" },
+      h("span", { className: "opt-k" }, o[1], ")"), h("span", null, o[2])))));
+    opts = [];
+  };
+  lines.forEach((ln, i) => {
+    const opt = /^([ABC])\)\s*([\s\S]*)$/.exec(ln);
+    if (opt) { opts.push(opt); return; }
+    flush();
+    const t = String(ln).trim();
+    if (t.startsWith("\"") || t.startsWith("(") || t.startsWith("<")) out.push(h("div", { key: i, className: "verse" }, ln));
+    else out.push(h("div", { key: i, className: "sub" }, ln));
+  });
+  flush();
+  return out;
+}
+// 인쇄 시 한 페이지에 넣을 문항 수 (괄호 채우기는 CZ_PER_PAGE로 따로)
+const PER_PAGE = { "객관식": 10, "필기": 10, "스피드": 10, "고난도": 10 }; // 넘치는 유형은 8로
+const SHOW_RESERVE = false; // 예비 문제는 출력하지 않음
 function Item({
   no,
   it,
   showAnswers,
-  reserve
+  reserve,
+  pageBreak
 }) {
+  if (it.cloze) return React.createElement(ClozeItem, { no, it, showAnswers });
   return /*#__PURE__*/React.createElement("div", {
-    className: `item ${reserve ? "is-reserve" : ""}`
+    className: `item ${reserve ? "is-reserve" : ""} ${pageBreak ? "pg-break" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "no"
   }, no), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "q-lead"
   }, /*#__PURE__*/React.createElement("span", {
     className: "tag"
-  }, it.tag), it.q[0]), it.q.slice(1).map((ln, i) => {
-    const opt = /^([ABC])\)\s*([\s\S]*)$/.exec(ln);
-    if (opt) {
-      return /*#__PURE__*/React.createElement("div", {
-        key: i,
-        className: "opt"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "opt-k"
-      }, opt[1], ")"), /*#__PURE__*/React.createElement("span", null, opt[2]));
-    }
-    const t = String(ln).trim();
-    if (t.startsWith("\"") || t.startsWith("(") || t.startsWith("<")) {
-      return /*#__PURE__*/React.createElement("div", {
-        key: i,
-        className: "verse"
-      }, ln);
-    }
-    return /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: "sub"
-    }, ln);
-  }), it.match2col && /*#__PURE__*/React.createElement("div", {
+  }, it.tag), stripLead(it.q[0])), renderQLines(it.q.slice(1)), it.match2col && /*#__PURE__*/React.createElement("div", {
     className: "match2"
   }, /*#__PURE__*/React.createElement("div", {
     className: "m-col"

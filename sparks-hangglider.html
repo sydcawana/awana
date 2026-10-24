@@ -19,6 +19,28 @@
   .topbar { padding-left:130px !important; }
   .console-title { padding-left:84px; }
   .levelbox .chip { display:inline-flex !important; align-items:center; margin:0 !important; }
+  /* 괄호 채우기 압축 조판 */
+  .cz-item { display:grid; grid-template-columns:2.2em 1fr; column-gap:10px; padding:7px 0 8px; border-bottom:1px dotted #d9d6d0; break-inside:avoid; }
+  .cz-no { text-align:right; font-weight:700; line-height:2.2; }
+  .cz-body { line-height:2.2; }
+  .cz-head { font-weight:700; margin-right:4px; white-space:nowrap; }
+  .cz-hole { white-space:nowrap; }
+  .cz-blank { display:inline-block; max-width:80vw; }
+  .cz-blank.on { color:var(--acc-d, #d16b6b); font-weight:700; padding:0 .3em; }
+  .cz-lines { margin-top:2px; }
+  .cz-line { height:30px; border-bottom:1px solid #b9b5ad; }
+  .cz-ans4 { color:var(--acc-d, #d16b6b); font-weight:700; line-height:1.9; }
+  @media print { .cz-item { padding:4px 0 5px; } .cz-blank.on, .cz-ans4 { color:#000 !important; } .cz-blank { max-width:none; } }
+  /* 모바일: 메뉴 버튼을 줄이고 그만큼만 제목을 민다 */
+  @media (max-width:600px) {
+    .homelink { top:8px; left:8px; padding:5px 9px; font-size:12px; border-radius:11px; }
+    .app-root .topbar { padding:10px 14px 10px 76px !important; gap:6px 10px; }
+    .app-root .topbar h1 { font-size:19px; }
+    .app-root .topbar .subtitle { font-size:13px; }
+    .app-root .controls { padding:10px 12px; gap:10px; }
+    .app-root .chip { padding:5px 9px; font-size:13px; }
+    .app-root .btn { padding:9px 14px; font-size:15px; }
+  }
 </style>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -848,7 +870,7 @@ function buildSet(handbook, quizType, seed, opts = {}) {
       const fixedRng = makeRng(1);
       for (const r of rows) {
         if (lv === 1 && !(r.키워드 && r.키워드.length)) continue; // 핵심단어 없는 말씀은 1단계 제외
-        items.push(fn({ pickRow: () => r, rng: fixedRng }));
+        items.push(toClozeItem(lv, r, fn({ pickRow: () => r, rng: fixedRng })));
       }
     } else {
       // 필기: SPARKS + 승급 + 성경지식(있으면) + 구절
@@ -921,9 +943,14 @@ function SparksQuiz({
     setSeedInput("");
   };
   const handlePrint = () => {
-    try {
-      window.print();
-    } catch (e) {}
+    // 웹폰트가 다 받아진 뒤에 인쇄 창을 연다 (최대 3초 대기)
+    const go = () => {
+      try {
+        window.print();
+      } catch (e) {}
+    };
+    const ready = document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]) : Promise.resolve();
+    ready.then(go, go);
     setPrintHint(true);
   };
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -1009,7 +1036,7 @@ function SparksQuiz({
         .sheet-head .mode { font-size:15px; font-weight:700; color:#7c93a0; background:#fff; border:2px solid #bfe4f0; border-radius:12px; padding:4px 12px; }
         .mode.answer { color:#d16b6b; border-color:#f2a3a3; }
         /* 이름칸 */
-        .name-grid { display:grid; grid-template-columns:64px 1fr 64px 1fr 64px 1fr; margin-top:14px; gap:8px; }
+        .name-grid { display:grid; grid-template-columns:64px 1fr 64px 1fr; margin-top:14px; gap:8px; }
         .name-grid .k { background:#eaf6fb; font-weight:700; text-align:center; border-radius:12px; padding:9px 6px; font-size:14px; color:#6b8a99; }
         .name-grid .v { border:2px dashed #cfe7f0; border-radius:12px; min-height:34px; }
         /* 섹션 제목 */
@@ -1142,10 +1169,6 @@ function SparksQuiz({
     className: "name-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "k"
-  }, "교회"), /*#__PURE__*/React.createElement("div", {
-    className: "v"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "k"
   }, "학년"), /*#__PURE__*/React.createElement("div", {
     className: "v"
   }), /*#__PURE__*/React.createElement("div", {
@@ -1170,6 +1193,50 @@ function SparksQuiz({
     className: "foot"
   }, "☁ 참 잘했어요! 수고했어요 친구들 ⭐"))));
 }
+// ==================== 괄호 채우기: 압축 조판 ====================
+// "[1단계] 출처  "...(        )..."" 한 문단으로, 빈칸은 본문 안에 괄호로 넣는다.
+function toClozeItem(lv, r, it) {
+  const ans = {};
+  (it.blanks || []).forEach(b => { ans[b.no] = b.text; });
+  if (lv === 4) {
+    it.cloze = { level: 4, ref: rowRef(r), parts: [], answer: r.말씀, lines: Math.max(2, Math.ceil(r.말씀.length / 34)) };
+    return it;
+  }
+  let src = String(it.q[1] || "").trim().replace(/^"|"$/g, "");
+  if (lv === 3) src = src; // 3단계는 앞부분 + (1)(2)…
+  const parts = [];
+  const re = /\((\d+)\)/g;
+  let last = 0, m;
+  while ((m = re.exec(src))) {
+    if (m.index > last) parts.push(src.slice(last, m.index));
+    const no = Number(m[1]);
+    parts.push({ no, text: ans[no] || "" });
+    last = re.lastIndex;
+  }
+  if (last < src.length) parts.push(src.slice(last));
+  it.cloze = { level: lv, ref: rowRef(r), parts };
+  return it;
+}
+const CZ_PER_PAGE = 0;
+function ClozeItem({ no, it, showAnswers }) {
+  const c = it.cloze;
+  const h = React.createElement;
+  const head = h("span", { className: "cz-head" }, `[${c.level}단계] ${c.ref}`);
+  // 인쇄 시 괄호 문제를 CZ_PER_PAGE 문항마다 새 페이지에서 시작 (0이면 안 나눔)
+  const pg = CZ_PER_PAGE && Number(no) > 1 && (Number(no) - 1) % CZ_PER_PAGE === 0 ? "cz-pg" : "";
+  if (c.level === 4) {
+    return h("div", { className: `cz-item ${pg}` }, h("div", { className: "cz-no" }, no),
+      h("div", null, h("div", { className: "cz-body" }, head),
+        showAnswers ? h("div", { className: "cz-ans4" }, c.answer)
+          : h("div", { className: "cz-lines" }, Array.from({ length: c.lines }, (_, i) => h("div", { key: i, className: "cz-line" })))));
+  }
+  const body = c.parts.map((p, i) => typeof p === "string" ? h("span", { key: i }, p)
+    : h("span", { key: i, className: "cz-hole" }, "(",
+        h("span", { className: `cz-blank ${showAnswers ? "on" : ""}`, style: showAnswers ? null : { width: `${Math.min(24, Math.max(6, p.text.length * 1.6 + 3))}em` } }, showAnswers ? p.text : " "),
+      ")"));
+  return h("div", { className: `cz-item ${pg}` }, h("div", { className: "cz-no" }, no),
+    h("div", { className: "cz-body" }, head, " “", body, "”"));
+}
 function Item({
   no,
   it,
@@ -1177,6 +1244,7 @@ function Item({
 }) {
   // 구절(따옴표로 시작하는 sub)은 verse 스타일로
   const isVerse = ln => typeof ln === "string" && ln.trim().startsWith('"');
+  if (it.cloze) return React.createElement(ClozeItem, { no, it, showAnswers });
   return /*#__PURE__*/React.createElement("div", {
     className: "item"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
