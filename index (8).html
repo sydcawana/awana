@@ -93,6 +93,13 @@ const TEAM_SEED = {
   "성효주":["blue","tnt"],  "이지윤":["blue","tnt"],  "김태준":["blue","tnt"],  "박주안":["blue","tnt"],  "신주명":["blue","tnt"],  "김하준":["blue","tnt"],
 };
 
+// 성경통독 핀 (스팍스·티앤티 공통). 저장값은 awards.bibles = ["모세오경", ...]
+const BIBLE_PINS = [
+  {testament:"구약", list:["모세오경","역사서","시가서","예언서"]},
+  {testament:"신약", list:["사복음서","사도행전","서신서","계시록"]},
+];
+const BIBLE_PIN_ORDER = BIBLE_PINS.flatMap(g=>g.list);
+const sortPins = arr => [...arr].sort((a,b)=>BIBLE_PIN_ORDER.indexOf(a)-BIBLE_PIN_ORDER.indexOf(b));
 const GEM_SEQ = ["red","green","red","green","red","green","red","green"];
 const HB_BADGE_LABEL = {"행글라이더":"행글라이더 승급","윙러너":"윙러너 승급","스카이스토머":"스카이스토머 승급"};
 const HB_WING_LABEL  = {"행글라이더":"행글라이더 날개","윙러너":"윙러너 날개","스카이스토머":"스카이스토머 날개"};
@@ -132,7 +139,7 @@ function calcAttAward(sid, awardWeek, allowedAbsences){
 function getAwards(sid){ return getWD().students?.[sid]?.awards||{}; }
 
 // ── 시상 누적 헬퍼 ──
-function emptyAwards(){return{badge:false,wing:false,gems:0,award:false,seals:[],enroll:false};}
+function emptyAwards(){return{badge:false,wing:false,gems:0,award:false,seals:[],enroll:false,bibles:[]};}
 function mergeAwards(acc,a){
   if(!a) return acc;
   if(a.badge)  acc.badge=true;
@@ -141,6 +148,7 @@ function mergeAwards(acc,a){
   if(a.enroll) acc.enroll=true;
   acc.gems+=(a.gems||0);
   (a.seals||[]).forEach(s=>{if(!acc.seals.includes(s))acc.seals.push(s);});
+  (a.bibles||[]).forEach(b=>{if(!acc.bibles.includes(b))acc.bibles.push(b);});
   return acc;
 }
 // 이전 학기 이월 진도 (students 문서의 carry). 핸드북이 바뀌었으면 무효 = 새 책은 0부터
@@ -274,7 +282,8 @@ async function saveAwards(sid, awards){
   if((awards.gems||0)>(prev.gems||0)) details.push(`보석 ${awards.gems}개`);
   const newSeals=(awards.seals||[]).filter(s=>!(prev.seals||[]).includes(s));
   if(newSeals.length) details.push(`씰 ${newSeals.join(",")}`);
-  if(awards.bible&&!prev.bible) details.push("성경통독");
+  const newBibles=(awards.bibles||[]).filter(b=>!(prev.bibles||[]).includes(b));
+  if(newBibles.length) details.push(`성경통독 ${newBibles.join(",")}`);
   if(details.length) await addLog(sid,"시상",details.join(" / "));
 }
 async function saveMemo(sid, memo){
@@ -330,6 +339,20 @@ async function adminDeletePastAward(sid, field, hb){
   if(changed){ S.awardPopup={sid,name:S.awardPopup?.name||"",hb}; render(); }
 }
 
+async function adminDeletePastBible(sid,pin){
+  const st=S.students.find(s=>s.id===sid);
+  if(st?.carry?.bibles?.includes(pin))
+    await saveStuMilestone(sid,{carry:{...st.carry,bibles:st.carry.bibles.filter(b=>b!==pin)}});
+  for(const w of Object.keys(S.wdata)){
+    if(Number(w)===S.week) continue;
+    const a=S.wdata[w]?.students?.[sid]?.awards;
+    if(!a?.bibles?.includes(pin)) continue;
+    const na={...a,bibles:a.bibles.filter(b=>b!==pin)};
+    S.wdata[w].students[sid].awards=na;
+    try{ await updateDoc(doc(db,"awana",`week_${w}`),{[`students.${sid}.awards`]:na,"_savedAt":Date.now()}); }
+    catch(e){ saveWeek(Number(w)); }
+  }
+}
 const saveWeek = w => {
   const d=S.wdata[w];
   if(d){
@@ -569,7 +592,7 @@ async function saveWeekLog(w){
       if(aw.award) awardDetails.push("수상대");
       if(aw.gems>0) awardDetails.push(`보석${aw.gems}개`);
       if(aw.seals?.length) awardDetails.push(`씰${aw.seals.length}개`);
-      if(aw.bible) awardDetails.push("성경통독");
+      if(aw.bibles?.length) awardDetails.push(`통독 ${sortPins(aw.bibles).join(",")}`);
       rows[st.id]={
         name:st.name,
         grade:st.grade||"",
@@ -645,7 +668,7 @@ async function primeWeek(w){
 // 아직 한 번도 진행하지 않은 주차다.
 function hasRealAward(a){
   if(!a) return false;
-  return !!(a.enroll||a.badge||a.wing||a.award||a.bible||(a.gems>0)||((a.seals||[]).length>0));
+  return !!(a.enroll||a.badge||a.wing||a.award||((a.bibles||[]).length>0)||(a.gems>0)||((a.seals||[]).length>0));
 }
 // 빈 주차도 라운드 1개를 기본으로 갖고 있으므로(initGame) 점수가 들어간 라운드만 본다
 function hasGameScore(g){
@@ -766,7 +789,7 @@ async function runSemesterMigration(){
   S.students.forEach(s=>{
     const a=calcCarryFor(s.id);
     carries[s.id]={badge:!!a.badge,wing:!!a.wing,award:!!a.award,enroll:!!a.enroll,
-      gems:a.gems||0,seals:[...(a.seals||[])],hb:s.handbook||"",_at:Date.now()};
+      gems:a.gems||0,seals:[...(a.seals||[])],bibles:[...(a.bibles||[])],hb:s.handbook||"",_at:Date.now()};
   });
   // ② students 저장 (성공해야 다음 단계로 진행)
   S.students=S.students.map(s=>({...s,carry:carries[s.id]}));
@@ -1259,7 +1282,7 @@ function mkClubLabel(type,text,iconSize=16){
 
 function mkEmpty(msg="등록된 학생이 없어요"){
   return D({textAlign:"center",color:"#94A3B8",padding:"28px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:"6px"},
-    SP({fontSize:"24px"},"개인"),
+    SP({fontSize:"24px"},"👤"),
     SP({fontSize:"13px"},msg)
   );
 }
@@ -1446,7 +1469,7 @@ function buildHbList(){
     SP({fontSize:"13px",color:"#94A3B8",fontWeight:"500"},"출석·단복 확인은 진행 탭에서 합니다.")
   );
 
-  const tabBar=D({display:"flex",gap:"0",marginBottom:"-2px",position:"relative",zIndex:"1"},
+  const tabBar=D({display:"flex",marginBottom:"12px",gap:"8px"},
     ...[["sparks","스팍스"],["tnt","티앤티"]].map(([id,label])=>{
       const btn=B({flex:"1",padding:"10px 0",borderRadius:"10px",border:"none",cursor:"pointer",
         fontWeight:"700",fontSize:"16px",
@@ -1473,7 +1496,7 @@ function buildHbList(){
     const topRow=D({display:"flex",alignItems:"center",gap:"8px"});
     topRow.appendChild(D({width:"8px",height:"8px",borderRadius:"50%",background:dotColor,flexShrink:"0"}));
     topRow.appendChild(SP({fontWeight:"700",fontSize:"16px",color:"#1E293B",flex:"1"},hb));
-    topRow.appendChild(SP({fontSize:"16px",fontWeight:"800",color:"#1E293B"},pts.toLocaleString()+"점"));
+    topRow.appendChild(SP({fontSize:"17px",fontWeight:"800",color:"#1E293B"},pts.toLocaleString()+"점"));
     topRow.appendChild(SP({color:"#CBD5E1",fontSize:"12px"},"›"));
     const botRow=D({display:"flex",alignItems:"center",gap:"6px",paddingLeft:"16px"});
     botRow.appendChild(SP({fontSize:"13px",color:"#94A3B8"},`출석 ${att}명 · 단복 ${uni}명 · 암송 ${Math.round(signs*10)/10}개`));
@@ -1596,7 +1619,7 @@ function buildHbDetail(hb){
       // 윗줄: 이름 + 출석/단복 동그라미 + 방패 + 점수
       D({display:"flex",alignItems:"center",gap:"8px"},
         D({width:"8px",height:"8px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
-        SP({fontWeight:"700",fontSize:"18px",color:"#1E293B"},s.name),
+        SP({fontWeight:"700",fontSize:"16px",color:"#1E293B"},s.name),
         s.grade?SP({fontSize:"11px",fontWeight:"700",flexShrink:"0",
           padding:"2px 6px",borderRadius:"6px",
           background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",
@@ -1682,8 +1705,8 @@ function buildGame(){
         TEAMS.forEach((t)=>{
           const pts=gameCum(type,t.id);
           const cell=D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",gap:"0px"});
-          cell.appendChild(SP({fontSize:"12px",fontWeight:"800",color:t.color,textAlign:"center"},t.name));
-          cell.appendChild(SP({fontSize:"11px",fontWeight:"700",color:"#1E293B",textAlign:"center"},pts.toLocaleString()));
+          cell.appendChild(SP({fontSize:"13px",fontWeight:"800",color:t.color,textAlign:"center"},t.name));
+          cell.appendChild(SP({fontSize:"15px",fontWeight:"700",color:"#1E293B",textAlign:"center"},pts.toLocaleString()));
           row.appendChild(cell);
         });
         return row;
@@ -2231,7 +2254,7 @@ function buildAwardPopup(){
     if(cur.award) summary.push("🏆"+hb+"수상대");
     (cur.seals||[]).forEach(s=>summary.push("●"+s));
   }
-  if(cur.bible) summary.push("📖 성경통독");
+  sortPins(cur.bibles||[]).forEach(b=>summary.push("📜 "+b));
 
   const curMemo=getWD()?.students?.[sid]?.memo||"";
 
@@ -2256,25 +2279,43 @@ function buildAwardPopup(){
             "이번 주: "+summary.join(" "))
         : D({fontSize:"12px",color:"#94A3B8",marginBottom:"12px"},"이번 주 시상 없음"),
       isSpks?buildSparks():buildTnt(),
-      // 📖 성경통독 (스팍스·티앤티 공통, 이번 주 기록)
+      // 📖 성경통독 핀 (스팍스·티앤티 공통) — 버튼 클릭으로 이번 주 기록
       (()=>{
-        const on=!!cur.bible;
-        const box=D({marginTop:"16px",display:"flex",alignItems:"center",gap:"10px",
-          padding:"12px 14px",borderRadius:"12px",
-          border:`2px solid ${on?"#7C3AED":"#E2E8F0"}`,background:on?"#F5F3FF":"#F8FAFC",
-          cursor:locked?"not-allowed":"pointer",userSelect:"none"},
-          D({width:"36px",height:"36px",borderRadius:"50%",flexShrink:"0",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            background:on?"#7C3AED":"#E2E8F0",color:"#fff",fontWeight:"800",fontSize:"16px"},on?"✓":"📖"),
-          D({flex:"1"},
-            D({fontWeight:"700",fontSize:"14px",color:on?"#7C3AED":"#1E293B"},"성경통독"),
-            D({fontSize:"11px",color:"#94A3B8",marginTop:"2px"},on?"이번 주 성경통독 완료":"누르면 이번 주 성경통독으로 기록"))
-        );
-        if(!locked) box.addEventListener("click",async()=>{
-          if(on&&!confirm("성경통독 기록을 취소할까요?")) return;
-          await save({bible:!on});
+        const curB=cur.bibles||[];
+        const pastB=past.bibles||[];
+        const PC="#7C3AED", PL="#F5F3FF";
+        const wrapB=D({marginTop:"16px"},
+          D({fontWeight:"700",fontSize:"13px",color:"#1E293B",marginBottom:"4px"},"▸ 📜 성경통독"),
+          D({fontSize:"11px",color:"#94A3B8",marginBottom:"8px"},"이번 주에 통독한 범위를 눌러주세요 · 흐린 칸은 이미 받은 핀"));
+        BIBLE_PINS.forEach(g=>{
+          const row=D({display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px"},
+            SP({width:"30px",flexShrink:"0",fontSize:"12px",fontWeight:"700",color:"#64748B"},g.testament));
+          g.list.forEach(pin=>{
+            const had=pastB.includes(pin), on=curB.includes(pin);
+            const clickable=!locked&&(!had||isAdmin);
+            const btn=D({flex:"1",textAlign:"center",padding:"10px 2px",borderRadius:"10px",
+              fontSize:"13px",fontWeight:"700",userSelect:"none",
+              border:`2px solid ${on||had?PC:"#E2E8F0"}`,
+              background:on?PC:had?PL:"#fff",
+              color:on?"#fff":had?PC:"#475569",
+              opacity:had&&!on?"0.5":"1",
+              cursor:clickable?"pointer":"default"},(on||had?"✓ ":"")+pin);
+            if(clickable) btn.addEventListener("click",async()=>{
+              if(had&&!on){
+                if(!confirm(`이전에 받은 "${pin}" 통독핀 기록을 삭제할까요?`)) return;
+                if(!confirm("정말 삭제하시겠어요? 되돌릴 수 없어요.")) return;
+                await adminDeletePastBible(sid,pin);
+                S.awardPopup={sid,name,hb};render();
+                return;
+              }
+              const next=on?curB.filter(x=>x!==pin):sortPins([...curB,pin]);
+              await save({bibles:next});
+            });
+            row.appendChild(btn);
+          });
+          wrapB.appendChild(row);
         });
-        return box;
+        return wrapB;
       })(),
       D({marginTop:"16px",borderTop:"1px solid #F1F5F9",paddingTop:"14px"},
         D({fontWeight:"600",fontSize:"13px",color:"#1E293B",marginBottom:"6px"},"📝 특이사항 메모"),
@@ -3290,7 +3331,7 @@ function buildStMgr(){
                   // 저장 흔적이 남아 통계가 오염된다.
                   if(hasRealAward(wd?.students?.[s.id]?.awards)){
                     const ea=isSpks?{seals:[],badge:false,wing:false,enroll:false,gems:0}:{seals:[],award:false,enroll:false};
-                    if(wd.students[s.id].awards.bible) ea.bible=true; // 성경통독은 핸드북과 무관 → 유지
+                    const _bb=wd.students[s.id].awards.bibles; if(_bb?.length) ea.bibles=_bb; // 성경통독은 핸드북과 무관 → 유지
                     wd.students[s.id].awards=ea;
                     try{ await updateDoc(doc(db,"awana",`week_${w}`),{[`students.${s.id}.awards`]:ea,"_savedAt":Date.now()}); }
                     catch(e){ saveWeek(Number(w)); }
@@ -3914,7 +3955,7 @@ function buildSchedule(){
     const topRow=D({display:"flex",alignItems:"center",gap:"7px"});
     const dot=D({width:"8px",height:"8px",borderRadius:"50%",background:t.color,flexShrink:"0"});
     topRow.appendChild(dot);
-    topRow.appendChild(D({fontWeight:"600",fontSize:"14px",color:"#1E293B",flexShrink:"0",minWidth:"60px"},s.name));
+    topRow.appendChild(D({fontWeight:"700",fontSize:"16px",color:"#1E293B",flexShrink:"0",minWidth:"60px"},s.name));
     topRow.appendChild(SP({fontSize:"11px",color:"#CBD5E1",flexShrink:"0"},s.handbook));
     cell.appendChild(topRow);
 
@@ -4457,7 +4498,7 @@ function buildAwardsTab(){
       (a.seals||[]).sort((x,y)=>parseInt(x)-parseInt(y))
         .forEach(s=>items.push({label:s,color:hbc.color,bg:hbc.light,border:hbc.border}));
     }
-    if(a.bible) items.push({label:"성경통독",color:"#7C3AED",bg:"#F5F3FF",border:"#DDD6FE"});
+    sortPins(a.bibles||[]).forEach(b=>items.push({label:"📜 "+b,color:"#7C3AED",bg:"#F5F3FF",border:"#DDD6FE"}));
     return items;
   }
 
@@ -4480,8 +4521,8 @@ function buildAwardsTab(){
 
     topRow.appendChild(D({display:"flex",alignItems:"center",gap:"6px",flexShrink:"0"},
       D({width:"9px",height:"9px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
-      SP({fontWeight:"700",fontSize:"18px",color:"#1E293B"},s.name),
-      signs>0?SP({fontSize:"14px",fontWeight:"700",color:"#D97706"},signs+"개"):null
+      SP({fontWeight:"700",fontSize:"16px",color:"#1E293B"},s.name),
+      signs>0?SP({fontSize:"12px",fontWeight:"600",color:"#D97706"},"암송 "+signs):null
     ));
 
     topRow.appendChild(D({flex:"1",display:"flex",flexWrap:"wrap",gap:"4px",alignItems:"center"},
@@ -4489,7 +4530,7 @@ function buildAwardsTab(){
         ? items.map(it=>SP({background:it.bg,borderRadius:"6px",
             padding:"4px 10px",border:"1px solid "+it.border,
             fontWeight:"700",fontSize:"13px",color:it.color},it.label))
-        : [SP({fontSize:"13px",color:"#CBD5E1"},"수상 없음")]
+        : []
     ));
 
     row.appendChild(topRow);
@@ -4583,14 +4624,14 @@ function buildAwardsTab(){
       card.appendChild(D({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"},
         D({display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"},
           SP({fontSize:"15px",fontWeight:"700",color:"#94A3B8"},rank+"위"),
-          SP({fontSize:"15px"},TEAM_DOTS[t.id]),
-          SP({fontWeight:"800",color:t.color,fontSize:"17px"},t.name+"팀"),
+          D({width:"9px",height:"9px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
+          SP({fontWeight:"800",color:t.color,fontSize:"16px"},t.name+"팀"),
           SP({fontSize:"14px",color:"#94A3B8"},attCount+"/"+totalCount+"명"),
           SP({fontSize:"14px",color:"#CBD5E1"},"·"),
           SP({fontSize:"14px",color:"#94A3B8"},"암송 "+totalSigns+"개"),
           bonusEl
         ),
-        SP({fontWeight:"800",fontSize:"19px",color:t.color},total.toLocaleString()+"점")
+        SP({fontWeight:"800",fontSize:"17px",color:t.color},total.toLocaleString()+"점")
       ));
 
       function mkClubBox(stats,type){
@@ -4609,7 +4650,7 @@ function buildAwardsTab(){
           (()=>{const h=document.createElement("div");h.style.cssText="display:flex;align-items:center;gap:4px;width:100%";
           h.appendChild(type==="sparks"?mkSparksIcon(14):mkTntIcon(14));
           h.appendChild(SP({fontSize:"16px",fontWeight:"800",color:grpColor},type==="sparks"?" 스팍스":" 티앤티"));
-          h.appendChild(SP({fontSize:"11px",color:"#94A3B8",marginLeft:"auto"},"👆"));
+          h.appendChild(SP({fontSize:"16px",color:"#CBD5E1",marginLeft:"auto"},"›"));
           return h;})()
         );
         hdr.addEventListener("mouseenter",()=>hdr.style.background="#F1F5F9");
@@ -4888,40 +4929,57 @@ function calcAwardSummary(wd){
     })),
     tntSeals: names(tnt.filter(s=>(aw(s).seals||[]).length>0)),
     tntDone: names(tnt.filter(s=>(aw(s).seals||[]).includes("씰8"))),
-    bible: names(S.students.filter(s=>aw(s).bible)),
+    // 교사가 핸드북·시상 팝업에서 적은 이번 주 메모 (이름 ㄱㄴㄷ순)
+    memos: S.students.map(s=>({name:s.name,memo:(wd?.students?.[s.id]?.memo||"").trim()}))
+      .filter(x=>x.memo).sort((a,b)=>a.name.localeCompare(b.name,"ko")),
+    bible: BIBLE_PIN_ORDER.map(pin=>({pin,list:names(S.students.filter(s=>(aw(s).bibles||[]).includes(pin)))}))
+      .filter(x=>x.list.length),
   };
 }
 function buildAwardSummary(){
+  if(S.awSummaryOpen===undefined){
+    try{ S.awSummaryOpen=localStorage.getItem("awana_sumOpen")==="1"; }catch(e){ S.awSummaryOpen=false; }
+  }
   const open=!!S.awSummaryOpen;
   const sm=open?calcAwardSummary(getWD()):null;
   const btn=B({width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-    padding:"12px 16px",border:"none",cursor:"pointer",
-    background:open?"#1E293B":"#fff",color:open?"#fff":"#1E293B",
-    fontWeight:"800",fontSize:"16px"},
-    ()=>{S.awSummaryOpen=!open;render();},
-    SP({},"📋 요약"),SP({fontSize:"13px",opacity:"0.7"},open?"접기 ▲":"펼치기 ▼"));
-  const wrap=D({border:"2px solid #1E293B",borderRadius:"12px",overflow:"hidden",marginBottom:"12px"},btn);
+    padding:"10px 14px",border:"none",cursor:"pointer",
+    background:open?"#fff":"#F1F5F9",color:open?"#1E293B":"#64748B",borderBottom:open?"1px solid #E2E8F0":"none",
+    fontWeight:"700",fontSize:"14px"},
+    ()=>{S.awSummaryOpen=!open;try{localStorage.setItem("awana_sumOpen",S.awSummaryOpen?"1":"0");}catch(e){}render();},
+    SP({},"📋 요약"),SP({fontSize:"12px",opacity:"0.7"},open?"접기 ▲":"펼치기 ▼"));
+  const wrap=D({border:`1px solid #E2E8F0`,borderRadius:"10px",overflow:"hidden",marginBottom:"12px"},btn);
   if(!open) return wrap;
 
-  const line=(label,list,color)=>D({display:"flex",gap:"10px",padding:"8px 0",
+  // 해당자가 없는 줄·섹션은 아예 표시하지 않는다
+  const line=(label,list,color)=>list.length?D({display:"flex",gap:"10px",padding:"7px 0",
     borderTop:"1px solid #F1F5F9",alignItems:"baseline"},
-    SP({flexShrink:"0",width:"86px",fontSize:"14px",fontWeight:"700",color},label+(list.length?` ${list.length}`:"")),
-    SP({flex:"1",fontSize:"19px",fontWeight:"800",lineHeight:"1.5",wordBreak:"keep-all",
-      color:list.length?"#1E293B":"#CBD5E1"},list.length?list.join(", "):"없음"));
-  const section=(icon,title,color,...lines)=>D({marginBottom:"10px"},
-    D({display:"flex",alignItems:"center",gap:"6px",fontWeight:"800",fontSize:"16px",color,marginBottom:"2px"},
-      icon,title),...lines);
-
-  const body=D({padding:"12px 16px 6px",background:"#fff"},
-    section(mkSparksIcon(16)," 스팍스","#EF4444",
+    SP({flexShrink:"0",width:"76px",fontSize:"13px",fontWeight:"600",color},label),
+    SP({flex:"1",fontSize:"16px",fontWeight:"700",lineHeight:"1.5",wordBreak:"keep-all",color:"#1E293B"},
+      list.join(", "))):null;
+  const section=(icon,title,color,...lines)=>{
+    const ls=lines.filter(Boolean);
+    if(!ls.length) return null;
+    return D({marginBottom:"10px"},
+      D({display:"flex",alignItems:"center",gap:"5px",fontWeight:"700",fontSize:"14px",color:"#1E293B",marginBottom:"2px"},
+        icon,title),...ls);
+  };
+  const sections=[
+    // 색 없이 일반 텍스트로 (요약은 읽기용)
+    section(SP({},"🔥"),"스팍스",null,
       line("보석",sm.spkGems,"#64748B"),
-      line("핸드북 완성",sm.spkDone,"#EF4444")),
-    section(mkTntIcon(16)," 티앤티","#16A34A",
+      line("핸드북 완성",sm.spkDone,"#64748B")),
+    section(mkTntIcon(14),"티앤티",null,
       line("씰",sm.tntSeals,"#64748B"),
-      line("핸드북 완성",sm.tntDone,"#16A34A")),
-    section(SP({},"📖")," 성경통독","#7C3AED",
-      line("전체",sm.bible,"#7C3AED"))
-  );
+      line("핸드북 완성",sm.tntDone,"#64748B")),
+    section(SP({},"📜"),"성경통독",null,
+      ...sm.bible.map(x=>line(x.pin,x.list,"#64748B"))),
+    section(null,"메모",null,
+      ...sm.memos.map(x=>D({padding:"7px 0",borderTop:"1px solid #F1F5F9",fontSize:"14px",lineHeight:"1.5",color:"#334155"},
+        SP({fontWeight:"700",color:"#1E293B"},x.name+": "),x.memo)))
+  ].filter(Boolean);
+  const body=D({padding:"10px 14px 4px",background:"#fff"},
+    ...(sections.length?sections:[D({padding:"6px 0 10px",fontSize:"15px",color:"#94A3B8",textAlign:"center"},"이번 주 시상 없음")]));
   wrap.appendChild(body);
   return wrap;
 }
