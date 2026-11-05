@@ -1472,6 +1472,12 @@ function buildLogin(){
 //  awana/bible 문서: { progress: { "이름": { group, done:["모세오경","사복음서",...], at } } }
 //  (이름으로 학생을 찾는다. 어통조아 서버가 쓰고, 여기서는 읽기만 한다)
 // ════════════════════════════════════
+// 목적격 조사: 마지막 글자에 받침이 있으면 '을', 없으면 '를' (모세오경을 / 사복음서를)
+function objParticle(word){
+  const c=String(word||"").charCodeAt(String(word||"").length-1);
+  if(c>=0xAC00&&c<=0xD7A3) return (c-0xAC00)%28?"을":"를";
+  return "를";
+}
 function bibleDoneFor(name){
   const p=(S.bibleProgress||{})[String(name||"").trim()];
   return Array.isArray(p&&p.done)?p.done.filter(x=>BIBLE_PIN_ORDER.includes(x)):[];
@@ -2467,7 +2473,7 @@ function buildAwardPopup(){
           D({fontSize:"11px",color:"#94A3B8",marginBottom:"8px"},"이번 주에 통독한 범위를 눌러주세요 · 흐린 칸은 이미 받은 핀"),
           _bibleReady.length?D({fontSize:"12px",color:"#B45309",fontWeight:"700",marginBottom:"8px",background:"#FFFBEB",
             border:"1px solid #FDE68A",borderRadius:"8px",padding:"6px 10px"},
-            "📖 어통조아 완독: "+_bibleReady.join(", ")+" · 빛나는 칸을 눌러 시상해 주세요"):null);
+            "📖 "+_bibleReady.join(", ")+objParticle(_bibleReady[_bibleReady.length-1])+" 다 읽었어요! 🎉"):null);
         const _got=bibleMilestones(pastB,curB), _had=bibleMilestonesHad(pastB);
         BIBLE_PINS.forEach(g=>{
           const row=D({display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px"},
