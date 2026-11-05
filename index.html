@@ -31,6 +31,7 @@ select,input,button,textarea{font-family:inherit;}
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import{getFirestore,doc,setDoc,updateDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const FB = initializeApp({
   apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
@@ -41,6 +42,20 @@ const FB = initializeApp({
   appId:"1:716775567560:web:9baa258b83eff5d377f5fd"
 });
 const db = getFirestore(FB);
+const auth = getAuth(FB);
+
+// ── 로그인: 비밀번호는 Firebase Authentication이 보관한다 (코드·DB에 비밀번호를 두지 않는다) ──
+//   역할마다 Firebase 계정이 하나씩 있다. 교사는 지금처럼 비밀번호(숫자)만 입력하고,
+//   앱이 뒤에 PW_SUFFIX를 붙여 Firebase에 보낸다. (Firebase는 비밀번호가 6자 이상이어야 함)
+//   비밀번호 변경: Firebase 콘솔 → Authentication → 사용자 → 해당 계정 → 비밀번호 재설정
+//   순서: 가장 많이 쓰는 역할부터 시도 (틀린 시도를 줄이기 위해)
+const PW_SUFFIX = "-awana";
+const ROLE_ACCOUNTS = [
+  {email:"general@sydc-awana.app", role:"general"},
+  {email:"game@sydc-awana.app",    role:"game"},
+  {email:"admin@sydc-awana.app",   role:"admin"},
+  {email:"pastor@sydc-awana.app",  role:"admin", remote:true}   // 목사님: 관리자 권한 + 바로 리모컨
+];
 
 // ════════════════════════════════════
 //  상수
@@ -215,7 +230,6 @@ const S = {
     attAward1Week:0,attAward1Allow:1,attAward2Week:0,attAward2Allow:1},
   newSt:{name:"",team:"red",handbook:"행글라이더",grade:""},
   _lastRemoteTs:0, _isDisplay:false, _showControl:false, _audioUnlocked:false,
-  passwords:{general:"",game:"",admin:"",pastor:"9101",displayKey:""},
   students:[],
   teachers:[],
   newTeacher:{name:"",role:""},
@@ -256,7 +270,7 @@ S.cer=initCeremonyState();
 const fbSave = (id,data) => setDoc(doc(db,"awana",id),data);
 const saveStudents = () => fbSave("students",{list:S.students});
 const saveTeachers = () => fbSave("teachers",{list:S.teachers});
-const saveSettings = () => fbSave("settings",{...S.settings,passwords:S.passwords,closedWeeks:S.closedWeeks});
+const saveSettings = () => fbSave("settings",{...S.settings,closedWeeks:S.closedWeeks});
 
 // ── 로그 기록 ──
 async function addLog(sid, event, detail){
@@ -447,17 +461,8 @@ function startListeners(){
         attAward1Week:d.attAward1Week||0,attAward1Allow:d.attAward1Allow??1,
         attAward2Week:d.attAward2Week||0,attAward2Allow:d.attAward2Allow??1};
       S.settingsInput={...S.settings};
-      if(d.passwords) S.passwords=d.passwords;
       S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
       onOpenWeekChanged();
-      if(!S.role){
-        const params=new URLSearchParams(window.location.search);
-        const mode=params.get("mode"),key=params.get("key");
-        if(mode==="display"&&key&&key===S.passwords.displayKey){
-          S.role="admin";S._isDisplay=true;
-          // startListeners는 이미 호출된 상태이므로 재호출 안 함
-        }
-      }
     }
     render();
   });
@@ -1395,16 +1400,29 @@ function buildLoading(){
 function buildLogin(){
   let pw="";
   const pinp=inp("비밀번호 입력","",v=>pw=v,{width:"100%",padding:"14px",fontSize:"16px",borderRadius:"12px",border:"2px solid #E2E8F0",marginBottom:"10px",boxSizing:"border-box",textAlign:"center",letterSpacing:"4px"},"password");
-  function tryLogin(){
+  let busy=false;
+  const loginBtn=B({width:"100%",background:"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"15px",cursor:"pointer"},()=>tryLogin(),"입장하기");
+  async function tryLogin(){
     const p=pw.trim();
-    let saved=null;
-    if(p===S.passwords.admin)      {S.role="admin"; saved="admin"; S.pwErr="";}
-    else if(p===S.passwords.game)  {S.role="game";  saved="game"; S.pwErr="";}
-    else if(p===S.passwords.pastor){S.role="admin"; S._showControl=true; saved="pastor"; S.pwErr="";} // 목사님: 관리자 권한 + 바로 리모컨
-    else if(p===S.passwords.general){S.role="general"; saved="general"; S.pwErr="";}
-    else{S.pwErr="비밀번호가 올바르지 않아요.";render();return;}
-    try{localStorage.setItem("awana_role",saved);}catch(e){}
-    render();startListeners();
+    if(!p||busy) return;
+    busy=true; loginBtn.disabled=true; loginBtn.textContent="확인 중...";
+    let lastErr=null;
+    for(const acc of ROLE_ACCOUNTS){
+      try{
+        await signInWithEmailAndPassword(auth,acc.email,p+PW_SUFFIX);
+        S.pwErr="";
+        return;   // 성공: onAuthStateChanged가 역할을 정하고 화면을 연다
+      }catch(e){
+        lastErr=e;
+        if(e.code==="auth/too-many-requests"||e.code==="auth/network-request-failed") break;
+      }
+    }
+    busy=false;
+    const code=lastErr&&lastErr.code;
+    S.pwErr=code==="auth/too-many-requests"?"여러 번 틀려서 잠시 막혔어요. 잠시 후 다시 시도해 주세요."
+      :code==="auth/network-request-failed"?"인터넷 연결을 확인해 주세요."
+      :"비밀번호가 올바르지 않아요.";
+    render();
   }
   pinp.addEventListener("keydown",e=>{if(e.key==="Enter")tryLogin();});
   return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
@@ -1414,7 +1432,7 @@ function buildLogin(){
       D({fontSize:"13px",color:"#94A3B8",marginBottom:"20px"},"어와나 클럽 매니저"),
       pinp,
       S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null,
-      B({width:"100%",background:"linear-gradient(135deg,#1E293B,#334155)",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"15px",cursor:"pointer"},tryLogin,"입장하기"),
+      loginBtn,
       D({marginTop:"20px",paddingTop:"16px",borderTop:"1px solid #F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px"},
         el("img",{src:"https://sydc.net/image/subD/info/ci_logo.jpg",style:{height:"28px",objectFit:"contain"}}),
         D({fontSize:"11px",color:"#94A3B8"},"서울영동교회 어와나")
@@ -1516,7 +1534,7 @@ function buildApp(){
         ()=>{
           if(!confirm("로그아웃 하시겠어요?")) return;
           try{localStorage.removeItem("awana_role");}catch(e){}
-          location.reload();
+          signOut(auth).catch(()=>{}).finally(()=>location.reload());
         },"🚪")
     )
   );
@@ -3709,28 +3727,12 @@ function buildConfigSet(){
       async()=>{S.settings={...S.settingsInput};await saveSettings();alert("저장됐어요!");},"저장")
   ));
 
-  let pw={...S.passwords};
-  const pwAcc=mkAccordion("pw","🔒 비밀번호",()=>{
-    const wrap=D({});
-    [["general","일반 선생님"],["game","운영진"],["admin","관리자"],["pastor","⛪ 목사님 (리모컨)"],["displayKey","📺 디스플레이 키"]].forEach(([k,l])=>{
-      wrap.appendChild(D({marginBottom:"10px"},
-        D({fontSize:"12px",color:"#64748B",marginBottom:"4px"},l),
-        inp("",pw[k],v=>pw[k]=v,{width:"100%",boxSizing:"border-box"})
-      ));
-    });
-    wrap.appendChild(D({fontSize:"12px",color:"#F59E0B",background:"#FFFBEB",borderRadius:"8px",padding:"8px",marginBottom:"8px"},"⚠️ 변경 후 즉시 적용됩니다."));
-    wrap.appendChild(B({width:"100%",background:"#3B82F6",color:"#fff",border:"none",borderRadius:"8px",padding:"10px",fontWeight:"700",cursor:"pointer",marginBottom:"8px"},
-      async()=>{S.passwords=pw;await saveSettings();alert("저장됐어요!");},"저장"));
-    const urlCopyBtn=B({width:"100%",background:"#F0FDF4",border:"1px solid #86EFAC",color:"#16A34A",borderRadius:"8px",padding:"10px",fontWeight:"700",cursor:"pointer"},
-      ()=>{
-        const key=pw.displayKey||S.passwords.displayKey;
-        if(!key){alert("디스플레이 키를 먼저 설정하고 저장해 주세요.");return;}
-        const url=`${location.origin}${location.pathname}?mode=display&key=${encodeURIComponent(key)}`;
-        navigator.clipboard?.writeText(url).then(()=>showToast("📺 디스플레이 URL 복사됐어요 ✔")).catch(()=>alert(url));
-      },"📺 디스플레이 URL 복사");
-    wrap.appendChild(urlCopyBtn);
-    return wrap;
-  });
+  const pwAcc=mkAccordion("pw","🔒 비밀번호",()=>D({fontSize:"12px",color:"#475569",lineHeight:"1.7"},
+    D({marginBottom:"6px"},"비밀번호는 Firebase 로그인에 안전하게 보관되어 앱이나 DB에는 저장되지 않습니다."),
+    D({marginBottom:"6px"},"변경: Firebase 콘솔 → Authentication → 사용자 → 해당 계정 → 비밀번호 재설정"),
+    D({marginBottom:"6px"},"새 비밀번호는 교사가 입력할 번호 뒤에 "+PW_SUFFIX+" 를 붙여서 넣으세요. (예: 1234"+PW_SUFFIX+")"),
+    D({},"계정: 일반 general@ · 운영진 game@ · 관리자 admin@ · 목사님 pastor@ (sydc-awana.app)")
+  ));
 
   const wsel=sel(WEEKS.map(w=>[String(w),w===0?`🧪 테스트`:`${w}주차 (${WEEK_DATES[w]})`]),String(S.week),()=>{},{width:"100%",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"8px",fontSize:"13px",boxSizing:"border-box",marginBottom:"8px"});
   const resetAcc=mkAccordion("reset","🗑️ 주차 초기화",()=>D({},
@@ -4065,48 +4067,23 @@ function buildStatsView(){
   );
 }
 
-onSnapshot(doc(db,"awana","settings"),snap=>{
-  if(snap.exists()){
-    const d=snap.data();
-    S.settings={firstPlace:d.firstPlace||1000,gap:d.gap||150,attScore:d.attScore||50,uniScore:d.uniScore||50,signScore:d.signScore||50,
-      attAward1Week:d.attAward1Week||0,attAward1Allow:d.attAward1Allow??1,
-      attAward2Week:d.attAward2Week||0,attAward2Allow:d.attAward2Allow??1};
-    S.settingsInput={...S.settings};
-    if(d.passwords) S.passwords=d.passwords;
-    S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
-      onOpenWeekChanged();
-    if(!S.role){
-      const params=new URLSearchParams(window.location.search);
-      const mode=params.get("mode"),key=params.get("key");
-      if(mode==="display"&&key&&key===S.passwords.displayKey){
-        S.role="admin";S._isDisplay=true;startListeners();
-      } else {
-        // 저장된 로그인 복원
-        try{
-          const sv=localStorage.getItem("awana_role");
-          if(sv==="admin"){S.role="admin";startListeners();}
-          else if(sv==="pastor"){S.role="admin";S._showControl=true;startListeners();}
-          else if(sv==="game"){S.role="game";startListeners();}
-          else if(sv==="general"){S.role="general";startListeners();}
-        }catch(e){}
-      }
+// Firebase가 기기에 로그인을 기억하므로, 새로고침해도 다시 로그인할 필요가 없다.
+// 로그인하기 전에는 DB를 읽지 않는다. (Firestore 규칙을 '로그인한 사람만'으로 잠글 수 있도록)
+onAuthStateChanged(auth,user=>{
+  if(user&&!S.role){
+    const acc=ROLE_ACCOUNTS.find(a=>a.email===user.email);
+    if(acc){
+      S.role=acc.role;
+      if(acc.remote) S._showControl=true;
+      startListeners();
     }
+  } else if(!user&&S.role){
+    location.reload();   // 다른 곳에서 로그아웃된 경우
+    return;
   }
-  if(!S.loaded){ S.loaded=true; render(); }
+  S.loaded=true;
+  render();
 });
-setTimeout(()=>{
-  if(!S.loaded){
-    S.loaded=true;
-    if(!S.role){
-      const params=new URLSearchParams(window.location.search);
-      const mode=params.get("mode"),key=params.get("key");
-      if(mode==="display"&&key&&key===S.passwords.displayKey){
-        S.role="admin";S._isDisplay=true;startListeners();
-      }
-    }
-    render();
-  }
-}, 5000);
 render();
 
 // ════════════════════════════════════
