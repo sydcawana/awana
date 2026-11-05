@@ -17,6 +17,13 @@ body{margin:0;font-family:'Segoe UI',sans-serif;background:#F8FAFC;color:#1E293B
 .reveal-card{animation:revealCard 0.8s cubic-bezier(0.175,0.885,0.32,1.275) forwards}
 .fade-in-up{animation:fadeInUp 0.4s ease forwards}
 select,input,button,textarea{font-family:inherit;}
+/* 어통조아 연동: 완독했지만 아직 시상하지 않은 통독핀 버튼은 은은하게 빛난다 */
+@keyframes bibleGlow{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}50%{box-shadow:0 0 0 4px rgba(245,158,11,0.45)}}
+.bible-ready{animation:bibleGlow 1.5s ease-in-out infinite}
+/* 시상 대기 배너: 명단이 바뀌었을 때만 두 번 반짝인다 */
+@keyframes bibleFlash{0%,100%{background:#FFFBEB}50%{background:#FDE68A}}
+.bible-banner-new{animation:bibleFlash 0.6s ease-in-out 2}
+@media (prefers-reduced-motion: reduce){.bible-ready,.bible-banner-new{animation:none}}
 </style>
 </head>
 <body>
@@ -454,6 +461,11 @@ function startListeners(){
     }
     render();
   });
+  // 어통조아(성경 통독표)에서 보내는 학생별 완독 범위 (읽기 전용)
+  onSnapshot(doc(db,"awana","bible"),snap=>{
+    S.bibleProgress=snap.exists()?(snap.data().progress||{}):{};
+    render();
+  },err=>console.warn("[bible] 완독 정보 수신 실패",err));
   onSnapshot(doc(db,"awana","schedule"),snap=>{
     S.schedule=snap.exists()?snap.data():{};
     render();
@@ -1411,6 +1423,51 @@ function buildLogin(){
   );
 }
 
+// ════════════════════════════════════
+//  어통조아 연동 — 완독했지만 아직 시상하지 않은 통독핀
+//  awana/bible 문서: { progress: { "이름": { group, done:["모세오경","사복음서",...], at } } }
+//  (이름으로 학생을 찾는다. 어통조아 서버가 쓰고, 여기서는 읽기만 한다)
+// ════════════════════════════════════
+function bibleDoneFor(name){
+  const p=(S.bibleProgress||{})[String(name||"").trim()];
+  return Array.isArray(p&&p.done)?p.done.filter(x=>BIBLE_PIN_ORDER.includes(x)):[];
+}
+function biblePendingFor(s){
+  const done=bibleDoneFor(s.name);
+  if(!done.length) return [];
+  const got=new Set([...(getPastAwards(s.id).bibles||[]),...(getAwards(s.id).bibles||[])]);
+  return sortPins(done.filter(p=>!got.has(p)));
+}
+function buildBibleBanner(){
+  if(!S.bibleProgress||!S.students.length) return null;
+  const list=S.students.map(s=>({s,pins:biblePendingFor(s)})).filter(x=>x.pins.length);
+  if(!list.length) return null;
+  const sig=list.map(x=>x.s.id+":"+x.pins.join(",")).join("|");
+  const isNew=S._bibleSig!==sig; S._bibleSig=sig;
+  const open=!!S._bibleOpen;
+  const head=D({display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"},
+    SP({fontSize:"16px"},"📖"),
+    SP({flex:"1",fontWeight:"700"},`통독핀 시상 대기 ${list.length}명`),
+    SP({fontSize:"12px",color:"#B45309",fontWeight:"700"},open?"접기 ▲":"보기 ▼"));
+  head.addEventListener("click",()=>{S._bibleOpen=!open;render();});
+  const box=D({background:"#FFFBEB",borderBottom:"3px solid #F59E0B",padding:"10px 16px",fontSize:"13px",color:"#92400E"},
+    head,
+    open?D({marginTop:"8px",display:"flex",flexDirection:"column",gap:"6px"},
+      ...list.map(({s,pins})=>{
+        const row=D({display:"flex",alignItems:"center",gap:"8px",background:"#fff",border:"1px solid #FDE68A",
+          borderRadius:"10px",padding:"8px 10px",cursor:"pointer"},
+          SP({fontWeight:"700",color:"#1E293B",flexShrink:"0"},s.name),
+          SP({fontSize:"12px",color:"#B45309",fontWeight:"600"},pins.map(p=>"📜 "+p).join("  ")),
+          SP({marginLeft:"auto",fontSize:"12px",color:"#94A3B8",flexShrink:"0"},"시상 ›"));
+        row.addEventListener("click",e=>{e.stopPropagation();S.awardPopup={sid:s.id,name:s.name,hb:s.handbook||""};render();});
+        return row;
+      }),
+      D({fontSize:"11px",color:"#B45309"},"어통조아(성경 통독표)에서 완독한 범위입니다. 이름을 누르면 시상 창이 열려요.")
+    ):null);
+  if(isNew) box.className="bible-banner-new";
+  return box;
+}
+
 function buildApp(){
   syncControlWeek();
   const tabs=[["schedule","📋 진행"],["handbook","📖 핸드북"],["game","🏃 게임"],["awards","🏅 시상"]];
@@ -1478,7 +1535,9 @@ function buildApp(){
   );
 
   return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
-    header,displayBanner,lockBanner,tabBar,
+    header,displayBanner,lockBanner,
+    (S.role==="admin"||S.role==="general")&&!S._isDisplay?buildBibleBanner():null,
+    tabBar,
     (()=>{
       const content=D({padding:"16px 16px 80px 16px"},S.tab==="schedule"?buildSchedule():S.tab==="handbook"?buildHb():S.tab==="game"?buildGame():buildAwardsTab());
       if(locked){
@@ -2350,24 +2409,31 @@ function buildAwardPopup(){
       (()=>{
         const curB=cur.bibles||[];
         const pastB=past.bibles||[];
+        // 어통조아에서 완독했지만 아직 시상하지 않은 범위
+        const _bibleDone=bibleDoneFor((S.students.find(x=>x.id===sid)||{}).name||name);
+        const _bibleReady=sortPins(_bibleDone.filter(p=>!pastB.includes(p)&&!curB.includes(p)));
         const PC="#7C3AED", PL="#F5F3FF";
         const wrapB=D({marginTop:"16px"},
           D({fontWeight:"700",fontSize:"13px",color:"#1E293B",marginBottom:"4px"},"▸ 📜 성경통독"),
-          D({fontSize:"11px",color:"#94A3B8",marginBottom:"8px"},"이번 주에 통독한 범위를 눌러주세요 · 흐린 칸은 이미 받은 핀"));
+          D({fontSize:"11px",color:"#94A3B8",marginBottom:"8px"},"이번 주에 통독한 범위를 눌러주세요 · 흐린 칸은 이미 받은 핀"),
+          _bibleReady.length?D({fontSize:"12px",color:"#B45309",fontWeight:"700",marginBottom:"8px",background:"#FFFBEB",
+            border:"1px solid #FDE68A",borderRadius:"8px",padding:"6px 10px"},
+            "📖 어통조아 완독: "+_bibleReady.join(", ")+" · 빛나는 칸을 눌러 시상해 주세요"):null);
         const _got=bibleMilestones(pastB,curB), _had=bibleMilestonesHad(pastB);
         BIBLE_PINS.forEach(g=>{
           const row=D({display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px"},
             SP({width:"30px",flexShrink:"0",fontSize:"12px",fontWeight:"700",color:"#64748B"},g.testament));
           g.list.forEach(pin=>{
-            const had=pastB.includes(pin), on=curB.includes(pin);
+            const had=pastB.includes(pin), on=curB.includes(pin), ready=_bibleReady.includes(pin);
             const clickable=!locked&&(!had||isAdmin);
             const btn=D({flex:"1",textAlign:"center",padding:"10px 2px",borderRadius:"10px",
               fontSize:"13px",fontWeight:"700",userSelect:"none",
-              border:`2px solid ${on||had?PC:"#E2E8F0"}`,
-              background:on?PC:had?PL:"#fff",
-              color:on?"#fff":had?PC:"#475569",
+              border:`2px solid ${on||had?PC:ready?"#F59E0B":"#E2E8F0"}`,
+              background:on?PC:had?PL:ready?"#FFFBEB":"#fff",
+              color:on?"#fff":had?PC:ready?"#B45309":"#475569",
               opacity:had&&!on?"0.5":"1",
-              cursor:clickable?"pointer":"default"},(on||had?"✓ ":"")+pin);
+              cursor:clickable?"pointer":"default"},(on||had?"✓ ":"")+pin+(ready?" 📖":""));
+            if(ready) btn.className="bible-ready";
             if(clickable) btn.addEventListener("click",async()=>{
               if(had&&!on){
                 if(!confirm(`이전에 받은 "${pin}" 통독핀 기록을 삭제할까요?`)) return;
@@ -2669,6 +2735,9 @@ function buildRemote(){
     remBtn("🏆 시상식 시작","#fff","#0EA5E9","#0EA5E9",async()=>await sendRemote("ceremony_start")),
     remBtn("✕ 시상식 닫기","#64748B","#F8FAFC","#E2E8F0",async()=>await sendRemote("ceremony_close"))
   ));
+  // 이번 주 시상 요약 (접기/펼치기) — 리모컨으로 진행하면서 누가 무엇을 받는지 확인
+  // 시상 탭의 '📋 요약'과 같은 내용이며, 펼침 상태도 함께 기억된다.
+  sheet.appendChild(D({marginTop:"10px"},buildAwardSummary()));
   divider();
 
   // 화면 전환
