@@ -475,6 +475,7 @@ function startListeners(){
       S.closedWeeks=d.closedWeeks||Array.from({length:15},(_,i)=>i+1);
       onOpenWeekChanged();
     }
+    S._settingsLoaded=true;   // 처음 주차 맞추기는 이 값을 받은 뒤에 한다 (buildApp)
     render();
   });
   // 어통조아(성경 통독표)에서 보내는 학생별 완독 범위 (읽기 전용)
@@ -537,6 +538,20 @@ const TEAM_DOTS={"red":"🔴","yellow":"🟡","green":"🟢","blue":"🔵"};
 function isLocked(){return S.closedWeeks.includes(S.week);}
 // ── 열린 주차 (1~15 중 잠금 해제된 주차. toggleLock 규칙상 항상 0개 또는 1개) ──
 function openWeek(){const o=WEEKS.filter(w=>w>0&&!S.closedWeeks.includes(w));return o.length===1?o[0]:null;}
+// 열린 주차가 없을 때(평일 등): WEEK_DATES에서 오늘(한국 시간) 이후 가장 가까운 주차. 학기가 끝났으면 마지막 주차
+function upcomingWeekByDate(){
+  const p=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Seoul",month:"numeric",day:"numeric"}).formatToParts(new Date());
+  const today=Number(p.find(x=>x.type==="month").value)*100+Number(p.find(x=>x.type==="day").value);
+  let last=null;
+  for(const w of WEEKS){
+    if(w===0) continue;
+    const m=/(\d+)월\s*(\d+)일/.exec(WEEK_DATES[w]||"");
+    if(!m) continue;
+    last=w;
+    if(Number(m[1])*100+Number(m[2])>=today) return w;
+  }
+  return last;
+}
 // 테스트(0주차)를 열어 놓고 그 주차에 있으면 테스트 중 → 따라가지 않음
 function inTestMode(){return S.week===0&&!S.closedWeeks.includes(0);}
 function goWeek(w,toast){
@@ -1508,9 +1523,14 @@ function buildApp(){
   const safeWeeks=visWeeks.length?visWeeks:[S.week];
   if(!safeWeeks.includes(S.week)){S.week=safeWeeks[0];listenWeek(S.week);}
   // 자동 선택: 테스트(0주차) 건너뛰고 1주차부터 해제된 주차
-  if(!S._weekFocused){const fo=WEEKS.find(w=>w>0&&!S.closedWeeks.includes(w));if(fo!==undefined&&S.week!==fo){S.week=fo;listenWeek(fo);}S._weekFocused=true;}
+  // 처음 화면의 주차: 열린 주차(🔓) → 없으면 날짜로 다가오는 주차. 주차 잠금 정보(settings)를 받은 뒤에 한 번만 맞춘다.
+  if(!S._weekFocused&&S._settingsLoaded){
+    const fo=WEEKS.find(w=>w>0&&!S.closedWeeks.includes(w))??upcomingWeekByDate();
+    if(fo!=null&&S.week!==fo){S.week=fo;listenWeek(fo);}
+    S._weekFocused=true;
+  }
   // 일반 교사가 테스트 주차에 있으면 1주차로 이동
-  if(!isAdmin&&S.week===0){const fo=WEEKS.find(w=>w>0)||1;S.week=fo;listenWeek(fo);}
+  if(!isAdmin&&S.week===0){const fo=upcomingWeekByDate()||1;S.week=fo;listenWeek(fo);}
   const weekLabel=w=>{
     if(w===0) return '🧪 테스트';
     const lk=S.closedWeeks.includes(w);
