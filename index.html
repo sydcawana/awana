@@ -57,6 +57,17 @@ const ROLE_ACCOUNTS = [
   {email:"pastor@sydc-awana.app",  role:"admin", remote:true}   // 목사님: 관리자 권한 + 바로 리모컨
 ];
 
+// 대기화면(모니터) 모드: 켜 둔 기기는 새로고침해도 다시 대기화면으로 돌아온다.
+// (기기 브라우저에만 기억하며, 관리자로 로그인된 경우에만 복원된다)
+const DISPLAY_MODE_KEY = "awana_display";
+function setDisplayMode(on){
+  S._isDisplay=!!on;
+  try{ if(on) localStorage.setItem(DISPLAY_MODE_KEY,"1"); else localStorage.removeItem(DISPLAY_MODE_KEY); }catch(e){}
+}
+function savedDisplayMode(){
+  try{ return localStorage.getItem(DISPLAY_MODE_KEY)==="1"; }catch(e){ return false; }
+}
+
 // ════════════════════════════════════
 //  상수
 // ════════════════════════════════════
@@ -1527,13 +1538,13 @@ function buildApp(){
       !isAdmin?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},()=>{S.showStatsOnly=true;render();},"📊"):null,
       isAdmin?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},()=>{S.showSettings=true;S.stTab="students";render();},"⚙️"):null,
       isAdmin?B({background:S._isDisplay?"#16A34A":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"15px",cursor:"pointer"},
-        ()=>{S._isDisplay=!S._isDisplay;S._showControl=false;render();},"🖥️"):null,
+        ()=>{setDisplayMode(!S._isDisplay);S._showControl=false;render();},"🖥️"):null,
       isAdmin?B({background:S._showControl?"#2563EB":"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"15px",cursor:"pointer"},
         ()=>{S._showControl=!S._showControl;syncControlWeek();render();},"📲"):null,
       B({background:"#334155",color:"#94A3B8",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},
         ()=>{
           if(!confirm("로그아웃 하시겠어요?")) return;
-          try{localStorage.removeItem("awana_role");}catch(e){}
+          try{localStorage.removeItem("awana_role");localStorage.removeItem(DISPLAY_MODE_KEY);}catch(e){}
           signOut(auth).catch(()=>{}).finally(()=>location.reload());
         },"🚪")
     )
@@ -2667,7 +2678,7 @@ document.addEventListener("keydown",e=>{
   const k=e.key.toLowerCase();
   if(k==="m"){
     e.preventDefault();
-    S._isDisplay=!S._isDisplay; S._showControl=false;
+    setDisplayMode(!S._isDisplay); S._showControl=false;
     showToast(S._isDisplay?"🖥️ 모니터 모드 ON":"🖥️ 모니터 모드 OFF");
     render();
   } else if(k==="s"){
@@ -4075,6 +4086,7 @@ onAuthStateChanged(auth,user=>{
     if(acc){
       S.role=acc.role;
       if(acc.remote) S._showControl=true;
+      else if(acc.role==="admin"&&savedDisplayMode()) S._isDisplay=true;   // 대기화면으로 쓰던 PC
       startListeners();
     }
   } else if(!user&&S.role){
