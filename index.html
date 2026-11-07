@@ -30,7 +30,7 @@ select,input,button,textarea{font-family:inherit;}
 <div id="root"></div>
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,doc,setDoc,updateDoc,onSnapshot,getDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getFirestore,doc,setDoc,updateDoc,onSnapshot,getDoc,FieldPath}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import{getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const FB = initializeApp({
@@ -481,6 +481,7 @@ function startListeners(){
   // 어통조아(성경 통독표)에서 보내는 학생별 완독 범위 (읽기 전용)
   onSnapshot(doc(db,"awana","bible"),snap=>{
     S.bibleProgress=snap.exists()?(snap.data().progress||{}):{};
+    S.bibleTeachers=snap.exists()?(snap.data().teachers||{}):{};   // 선생님 통독 (어통조아가 보냄)
     render();
   },err=>console.warn("[bible] 완독 정보 수신 실패",err));
   onSnapshot(doc(db,"awana","schedule"),snap=>{
@@ -1478,6 +1479,63 @@ function objParticle(word){
   if(c>=0xAC00&&c<=0xD7A3) return (c-0xAC00)%28?"을":"를";
   return "를";
 }
+// ── 선생님 통독핀 ──
+//  어통조아가 awana/bible.teachers 에 { "이름": { done:["구약","신약","신구약"] } } 로 보낸다.
+//  📋 요약에서 [✓ 지급]을 누르면 그 주차 문서의 teacherBibles["이름"] 에 기록되고,
+//  어통조아가 이를 읽어 지급완료로 처리한다. (어쩜조아 교사 명단과는 연결하지 않는다)
+const TEACHER_PIN_ORDER=["구약","신약","신구약"];
+const TEACHER_PIN_LABEL={"구약":"구약핀","신약":"신약핀","신구약":"통독핀"};
+function teacherBibleRows(w){
+  const confirmedNow=(S.wdata[w]&&S.wdata[w].teacherBibles)||{};
+  const before={};   // 다른 주차(0주차 제외)에서 이미 지급 확인한 핀
+  Object.entries(S.wdata||{}).forEach(([k,d])=>{
+    const n=Number(k); if(n===w||n===0) return;
+    Object.entries((d&&d.teacherBibles)||{}).forEach(([nm,pins])=>{
+      before[nm]=before[nm]||new Set(); (pins||[]).forEach(p=>before[nm].add(p));
+    });
+  });
+  const names=new Set([...Object.keys(S.bibleTeachers||{}),...Object.keys(confirmedNow)]);
+  const rows=[];
+  [...names].sort((a,b)=>a.localeCompare(b,"ko")).forEach(name=>{
+    const done=((S.bibleTeachers||{})[name]?.done||[]).filter(p=>TEACHER_PIN_LABEL[p]);
+    const now=confirmedNow[name]||[];
+    TEACHER_PIN_ORDER.forEach(pin=>{
+      const confirmed=now.includes(pin);
+      if(confirmed||(done.includes(pin)&&!(before[name]&&before[name].has(pin)))) rows.push({name,pin,confirmed});
+    });
+  });
+  return rows;
+}
+async function toggleTeacherBible(name,pin){
+  if(isLocked()){showToast("🔒 잠긴 주차예요. 위쪽 🔒 버튼으로 주차를 열어 주세요");return;}
+  const w=S.week;
+  if(!S.wdata[w]) S.wdata[w]=initWD();
+  const wd=S.wdata[w];
+  const cur=(wd.teacherBibles&&wd.teacherBibles[name])||[];
+  const next=cur.includes(pin)?cur.filter(p=>p!==pin):[...cur,pin];
+  wd.teacherBibles={...(wd.teacherBibles||{}),[name]:next};
+  render();
+  try{ await updateDoc(doc(db,"awana",`week_${w}`),new FieldPath("teacherBibles",name),next,"_savedAt",Date.now()); }
+  catch(e){
+    try{ await setDoc(doc(db,"awana",`week_${w}`),{teacherBibles:{[name]:next},_savedAt:Date.now()},{merge:true}); }
+    catch(e2){ console.warn("선생님 통독 저장 실패",e2); showToast("저장하지 못했어요. 다시 눌러 주세요"); }
+  }
+}
+function buildTeacherBibleSection(){
+  const rows=teacherBibleRows(S.week);
+  if(!rows.length) return null;
+  return D({marginBottom:"10px"},
+    D({display:"flex",alignItems:"center",gap:"5px",fontWeight:"600",fontSize:"12px",color:"#64748B",background:"#F1F5F9",borderRadius:"6px",padding:"4px 8px",marginBottom:"2px"},
+      SP({},"👩‍🏫"),"선생님 통독"),
+    ...rows.map((r,i)=>D({display:"flex",alignItems:"center",gap:"10px",padding:"7px 0",borderTop:i?"1px solid #F1F5F9":"none"},
+      SP({flex:"1",fontSize:"16px",fontWeight:"700",lineHeight:"1.5",color:"#1E293B"},r.name+" 선생님"),
+      SP({flexShrink:"0",fontSize:"13px",fontWeight:"600",color:"#64748B"},TEACHER_PIN_LABEL[r.pin]),
+      B({flexShrink:"0",border:"1px solid "+(r.confirmed?"#86EFAC":"#FDE68A"),background:r.confirmed?"#F0FDF4":"#FFFBEB",
+        color:r.confirmed?"#16A34A":"#B45309",borderRadius:"8px",padding:"5px 10px",fontSize:"13px",fontWeight:"700",cursor:"pointer"},
+        e=>{e.stopPropagation();toggleTeacherBible(r.name,r.pin);},r.confirmed?"✓ 지급함":"✓ 지급")
+    )));
+}
+
 function bibleDoneFor(name){
   const p=(S.bibleProgress||{})[String(name||"").trim()];
   return Array.isArray(p&&p.done)?p.done.filter(x=>BIBLE_PIN_ORDER.includes(x)):[];
@@ -5156,6 +5214,11 @@ function awardSummaryText(sm){
   block("🔥 스팍스",[["보석",sm.spkGems],["핸드북 완성",sm.spkDone]]);
   block("T&T 티앤티",[["씰",sm.tntSeals],["핸드북 완성",sm.tntDone]]);
   block("📜 성경통독",sm.bible.map(x=>[x.pin,x.list]));
+  const _tr=teacherBibleRows(S.week);
+  if(_tr.length){
+    const by={}; _tr.forEach(r=>{(by[r.pin]=by[r.pin]||[]).push(r.name+" 선생님");});
+    block("👩‍🏫 선생님 통독",TEACHER_PIN_ORDER.filter(p=>by[p]).map(p=>[TEACHER_PIN_LABEL[p],by[p]]));
+  }
   if(out.length===1) out.push("이번 주 시상 없음");
   return out.join("\n");
 }
@@ -5212,6 +5275,7 @@ function buildAwardSummary(){
       line("핸드북 완성",sm.tntDone,"#64748B")),
     section(SP({},"📜"),"성경통독",null,
       ...sm.bible.map(x=>line(x.pin,x.list,"#64748B"))),
+    buildTeacherBibleSection(),
     section(null,"메모",null,
       sm.quizOnly.length?D({padding:"7px 0",fontSize:"14px",lineHeight:"1.5",color:"#334155"},
         SP({fontWeight:"700",color:"#1E293B"},"퀴즈만: "),sm.quizOnly.join(", ")):null,
