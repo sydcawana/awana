@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<meta name="color-scheme" content="light only"/>
+<title>랜덤 팀 짜기 · SYDC 어와나</title>
+<link rel="icon" href="https://raw.githubusercontent.com/sydcawana/awana/main/awana_logo.jpg">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;color-scheme:light;}
+body{margin:0;font-family:'Segoe UI',sans-serif;background:#F8FAFC;color:#1E293B;}
+select,input,button{font-family:inherit;}
+@keyframes pop{0%{opacity:0;transform:scale(0.9)}100%{opacity:1;transform:scale(1)}}
+.pop{animation:pop 0.35s ease forwards}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+// ════════════════════════════════════════════════════════════
+//  어쩜조아 — 랜덤 팀 짜기 (random.html)
+//  · 대상: 선택한 주차에 '출석'인 아이들만
+//  · 스팍스 / 티앤티를 각각 빨·파·초·노 4팀으로 나눔 (경기를 따로 하므로)
+//  · 균형: ① 부서별 인원 ② 이번 학기 누적 암송 합 ③ 운동 점수 합
+//          → 그다음 스팍스 팀과 티앤티 팀을 색깔로 짝지어 '합산' 균형까지 맞춤
+//  · 운동 점수(1~3)는 awana/random 문서의 sport.{학생id} 에 필드 단위로 저장
+//    (students 목록은 건드리지 않음 → index.html과 덮어쓰기 충돌 없음)
+//  · 결과는 화면에만 보여 주고, 앱의 팀 배정(students.team)은 바꾸지 않음
+// ════════════════════════════════════════════════════════════
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import{getFirestore,doc,setDoc,onSnapshot}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getAuth,signInWithEmailAndPassword,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const FB = initializeApp({
+  apiKey:"AIzaSyAsZo4xlR17hN7JQFL_vLj2gIkYcrh_Pt8",
+  authDomain:"sydc-awana.firebaseapp.com",
+  projectId:"sydc-awana",
+  storageBucket:"sydc-awana.firebasestorage.app",
+  messagingSenderId:"716775567560",
+  appId:"1:716775567560:web:9baa258b83eff5d377f5fd"
+});
+const db = getFirestore(FB);
+const auth = getAuth(FB);
+
+// index.html과 같은 로그인 방식 (같은 사이트라 이미 로그인돼 있으면 바로 열림)
+const PW_SUFFIX = "-awana";
+const ROLE_ACCOUNTS = ["general@sydc-awana.app","game@sydc-awana.app","admin@sydc-awana.app","pastor@sydc-awana.app"];
+
+// ⚠️ index.html의 WEEK_DATES와 똑같이 맞춰 주세요 (학기마다 같이 갈아끼우기)
+const WEEK_DATES = ["8월 16일(테스트)","8월 23일","8월 30일","9월 6일","9월 13일","9월 20일","10월 4일","10월 11일","10월 18일","10월 25일","11월 1일","11월 8일","11월 15일","11월 22일","11월 29일","12월 6일"];
+const WEEKS = Array.from({length:16},(_,i)=>i);
+
+const TEAMS = [
+  {id:"red",    name:"빨강", color:"#EF4444", light:"#FEF2F2", dot:"🔴"},
+  {id:"blue",   name:"파랑", color:"#3B82F6", light:"#EFF6FF", dot:"🔵"},
+  {id:"green",  name:"초록", color:"#22C55E", light:"#F0FDF4", dot:"🟢"},
+  {id:"yellow", name:"노랑", color:"#EAB308", light:"#FEFCE8", dot:"🟡"},
+];
+const SPARKS_HB = ["행글라이더","윙러너","스카이스토머"];
+const TNT_HB    = ["어드벤처1","어드벤처2","챌린지1","챌린지2"];
+const DEPTS = [
+  {id:"sparks", name:"스팍스", color:"#EF4444", hbs:SPARKS_HB},
+  {id:"tnt",    name:"티앤티", color:"#16A34A", hbs:TNT_HB},
+];
+
+// ── 균형 기준 (필요하면 숫자만 조정) ──
+const SPORT_DEFAULT = 2;     // 운동 점수 미입력 = 보통
+const SPORT_TOL     = 2;     // 팀 간 운동 합 차이 허용치 (넘으면 크게 감점)
+const RESTARTS      = 250;   // 부서별 시도 횟수
+const TOP_K         = 8;     // 부서별 좋은 안 후보 수 (이 중에서 무작위 → 매번 다른 팀)
+
+// ════════════════════════════════════
+//  상태
+// ════════════════════════════════════
+const S = {
+  user:null, loaded:false, pwErr:"",
+  students:[], wdata:{}, closedWeeks:[], settingsLoaded:false,
+  sport:{},            // {sid: 1|2|3}
+  week:null,           // 팀을 짤 주차
+  open:{sparks:true,tnt:true},
+  result:null,         // 팀 짜기 결과
+  showNums:true,       // 결과에 암송·운동 숫자 표시
+};
+
+// ════════════════════════════════════
+//  주차·누적 계산 (index.html과 같은 기준)
+// ════════════════════════════════════
+function hasRealAward(a){
+  if(!a) return false;
+  return !!(a.enroll||a.badge||a.wing||a.award||((a.bibles||[]).length>0)||(a.gems>0)||((a.seals||[]).length>0));
+}
+function hasGameScore(g){
+  return (g?.rounds||[]).some(r=>Object.values(r?.scores||{}).some(v=>(+v||0)!==0));
+}
+function weekHasActivity(wd){
+  if(!wd) return false;
+  if(wd.gameFinalized) return true;
+  if(hasGameScore(wd.games?.sparks)||hasGameScore(wd.games?.tnt)) return true;
+  if(wd.bonus&&Object.values(wd.bonus).some(v=>(+v||0)>0)) return true;
+  return Object.values(wd.students||{}).some(d=>
+    d.attendance===false || d.uniform===false ||
+    ((+d.signs||0)>0) || d.memo || d.quizOnly || hasRealAward(d.awards));
+}
+// 통계 화면의 '암송 누적'과 같은 주차만 센다 (끝난 주차 + 실제 활동 있음, 테스트 제외)
+function isCountedWeek(w){
+  w=Number(w);
+  if(w<=0) return false;
+  const wd=S.wdata[w];
+  if(!wd||!weekHasActivity(wd)) return false;
+  return !!wd.gameFinalized || S.closedWeeks.includes(w);
+}
+function cumSigns(sid){
+  let sum=0;
+  WEEKS.forEach(w=>{
+    if(!isCountedWeek(w)) return;
+    const v=S.wdata[w]?.students?.[sid]?.signs||0;
+    sum+=(typeof v==="number"?v:parseFloat(v)||0);
+  });
+  return Math.round(sum*10)/10;
+}
+function openWeek(){const o=WEEKS.filter(w=>w>0&&!S.closedWeeks.includes(w));return o.length===1?o[0]:null;}
+function upcomingWeekByDate(){
+  const p=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Seoul",month:"numeric",day:"numeric"}).formatToParts(new Date());
+  const today=Number(p.find(x=>x.type==="month").value)*100+Number(p.find(x=>x.type==="day").value);
+  let last=null;
+  for(const w of WEEKS){
+    if(w===0) continue;
+    const m=/(\d+)월\s*(\d+)일/.exec(WEEK_DATES[w]||"");
+    if(!m) continue;
+    last=w;
+    if(Number(m[1])*100+Number(m[2])>=today) return w;
+  }
+  return last;
+}
+function deptOf(s){
+  if(SPARKS_HB.includes(s.handbook)) return "sparks";
+  if(TNT_HB.includes(s.handbook)) return "tnt";
+  return null;
+}
+function sportOf(sid){ const v=S.sport[sid]; return (v===1||v===2||v===3)?v:SPORT_DEFAULT; }
+const r1=x=>Math.round(x*10)/10;
+function gradeLabel(g){return g==="유"?"7세":(g?g+"학년":"");}
+
+// 이번 주 출석한 아이들 (부서별)
+function attendees(){
+  const wd=S.wdata[S.week]||{};
+  const out={sparks:[],tnt:[]};
+  S.students.forEach(s=>{
+    const d=deptOf(s); if(!d) return;
+    if(!wd.students?.[s.id]?.attendance) return;
+    out[d].push({id:s.id,name:s.name,grade:s.grade||"",handbook:s.handbook,sign:cumSigns(s.id),sport:sportOf(s.id)});
+  });
+  out.sparks.sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  out.tnt.sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  return out;
+}
+
+// ════════════════════════════════════
+//  팀 나누기 알고리즘
+// ════════════════════════════════════
+function shuffle(a){a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+const range=arr=>arr.length?Math.max(...arr)-Math.min(...arr):0;
+
+// 부서 안 4팀 비용: 암송 합 차이 + 운동 합 차이(허용치 넘으면 크게 감점)
+function deptCost(kids,assign){
+  const sg=[0,0,0,0], sp=[0,0,0,0];
+  for(let i=0;i<kids.length;i++){ sg[assign[i]]+=kids[i].sign; sp[assign[i]]+=kids[i].sport; }
+  const spR=range(sp);
+  return range(sg) + 1000*Math.max(0,spR-SPORT_TOL) + 3*spR;
+}
+// 한 부서를 4팀으로: 무작위 시작 → 두 명 맞바꾸기로 개선 → 여러 번 반복해서 좋은 안 후보 모음
+function solveDept(kids){
+  const n=kids.length;
+  if(!n) return [{teams:[[],[],[],[]],cost:0}];
+  const seen=new Map();
+  const idx=[...Array(n).keys()];
+  for(let r=0;r<RESTARTS;r++){
+    const perm=shuffle([0,1,2,3]);
+    const assign=new Array(n);
+    shuffle(idx).forEach((k,i)=>{assign[k]=perm[i%4];});   // 인원 차이 최대 1명
+    let cur=deptCost(kids,assign), improved=true;
+    while(improved){
+      improved=false;
+      for(const a of shuffle(idx)){
+        for(const b of shuffle(idx)){
+          if(assign[a]===assign[b]) continue;
+          [assign[a],assign[b]]=[assign[b],assign[a]];
+          const c=deptCost(kids,assign);
+          if(c<cur-1e-9){cur=c;improved=true;}
+          else [assign[a],assign[b]]=[assign[b],assign[a]];
+        }
+      }
+    }
+    const teams=[[],[],[],[]];
+    assign.forEach((t,i)=>teams[t].push(kids[i]));
+    const key=teams.map(t=>t.map(k=>k.id).sort().join(",")).sort().join("|");
+    if(!seen.has(key)) seen.set(key,{teams,cost:cur});
+  }
+  return [...seen.values()].sort((a,b)=>a.cost-b.cost).slice(0,TOP_K);
+}
+function permutations(arr){
+  if(arr.length<=1) return [arr];
+  return arr.flatMap((x,i)=>permutations([...arr.slice(0,i),...arr.slice(i+1)]).map(p=>[x,...p]));
+}
+const PERMS=permutations([0,1,2,3]);
+const sum=(list,f)=>list.reduce((s,k)=>s+f(k),0);
+
+// 색깔별 합산 비용: 암송 합 차이 + 운동 합 차이 + 인원 차이
+function comboCost(colors){
+  const sg=colors.map(c=>sum(c.spk,k=>k.sign)+sum(c.tnt,k=>k.sign));
+  const sp=colors.map(c=>sum(c.spk,k=>k.sport)+sum(c.tnt,k=>k.sport));
+  const ct=colors.map(c=>c.spk.length+c.tnt.length);
+  const spR=range(sp), ctR=range(ct);
+  return range(sg) + 1000*Math.max(0,spR-SPORT_TOL) + 3*spR + 500*Math.max(0,ctR-1);
+}
+function makeTeams(){
+  const att=attendees();
+  const spkC=solveDept(att.sparks), tntC=solveDept(att.tnt);
+  const cands=[];
+  for(let trial=0;trial<80;trial++){
+    const s=spkC[Math.floor(Math.random()*spkC.length)];
+    const t=tntC[Math.floor(Math.random()*tntC.length)];
+    const sOrder=shuffle([0,1,2,3]);           // 스팍스 팀 → 색깔 (무작위)
+    let best=null;
+    for(const p of shuffle(PERMS)){            // 티앤티 팀 → 같은 색 짝 (최적)
+      const colors=TEAMS.map((tm,i)=>({tid:tm.id,spk:s.teams[sOrder[i]],tnt:t.teams[p[i]]}));
+      const c=comboCost(colors)+s.cost+t.cost;
+      if(!best||c<best.cost) best={cost:c,colors};
+    }
+    cands.push(best);
+  }
+  cands.sort((a,b)=>a.cost-b.cost);
+  const pick=cands[Math.floor(Math.random()*Math.min(5,cands.length))];
+  // 팀 안에서는 이름순
+  pick.colors.forEach(c=>{
+    c.spk=[...c.spk].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+    c.tnt=[...c.tnt].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  });
+  return {colors:pick.colors,week:S.week,at:Date.now()};
+}
+
+// ════════════════════════════════════
+//  저장 (운동 점수만 — 필드 단위)
+// ════════════════════════════════════
+async function setSport(sid,v){
+  const prev=S.sport[sid];
+  S.sport={...S.sport,[sid]:v}; render();
+  try{ await setDoc(doc(db,"awana","random"),{sport:{[sid]:v},_savedAt:Date.now()},{merge:true}); }
+  catch(e){
+    console.warn("운동 점수 저장 실패",e);
+    S.sport={...S.sport,[sid]:prev}; render();
+    toast("저장하지 못했어요. 다시 눌러 주세요");
+  }
+}
+
+// ════════════════════════════════════
+//  DOM 헬퍼
+// ════════════════════════════════════
+function el(tag,props={},...ch){
+  const e=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==="style"&&typeof v==="object") Object.assign(e.style,v);
+    else if(k==="className") e.className=v;
+    else if(k.startsWith("on")&&typeof v==="function") e.addEventListener(k.slice(2).toLowerCase(),v);
+    else e.setAttribute(k,v);
+  });
+  ch.flat().forEach(c=>{if(c==null||c===false)return;e.appendChild(typeof c==="string"||typeof c==="number"?document.createTextNode(String(c)):c);});
+  return e;
+}
+const D=(s,...c)=>el("div",{style:s},...c);
+const SP=(s,...c)=>el("span",{style:s},...c);
+const B=(s,fn,...c)=>el("button",{style:s,onClick:fn},...c);
+function toast(msg){
+  const prev=document.getElementById("_toast");if(prev)prev.remove();
+  const t=el("div",{id:"_toast",style:{position:"fixed",bottom:"28px",left:"50%",transform:"translateX(-50%)",
+    background:"#1E293B",color:"#fff",padding:"8px 20px",borderRadius:"20px",fontSize:"13px",fontWeight:"700",
+    zIndex:"9999",pointerEvents:"none",whiteSpace:"nowrap",transition:"opacity 0.4s"}},msg);
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";setTimeout(()=>t.remove(),400);},1600);
+}
+function copyText(text,msg){
+  const fallback=()=>{
+    const ta=document.createElement("textarea");ta.value=text;ta.style.cssText="position:fixed;opacity:0";
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand("copy");toast(msg);}catch(e){alert(text);}
+    document.body.removeChild(ta);
+  };
+  if(navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(()=>toast(msg)).catch(fallback);
+  else fallback();
+}
+
+// ════════════════════════════════════
+//  화면
+// ════════════════════════════════════
+function render(){
+  const root=document.getElementById("root");
+  root.innerHTML="";
+  root.appendChild(!S.loaded?buildLoading():!S.user?buildLogin():buildMain());
+}
+function buildLoading(){
+  return D({minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#94A3B8",fontSize:"14px"},"불러오는 중...");
+}
+function buildLogin(){
+  let pw="", busy=false;
+  const input=el("input",{type:"password",placeholder:"비밀번호 입력",style:{width:"100%",padding:"14px",fontSize:"16px",
+    borderRadius:"12px",border:"2px solid #E2E8F0",marginBottom:"10px",textAlign:"center",letterSpacing:"4px"}});
+  input.addEventListener("input",()=>pw=input.value);
+  const btn=B({width:"100%",background:"#1E293B",color:"#fff",border:"none",borderRadius:"12px",padding:"14px",
+    fontWeight:"700",fontSize:"15px",cursor:"pointer"},()=>go(),"입장하기");
+  async function go(){
+    const p=pw.trim(); if(!p||busy) return;
+    busy=true; btn.disabled=true; btn.textContent="확인 중...";
+    let last=null;
+    for(const email of ROLE_ACCOUNTS){
+      try{ await signInWithEmailAndPassword(auth,email,p+PW_SUFFIX); S.pwErr=""; return; }
+      catch(e){ last=e; if(e.code==="auth/too-many-requests"||e.code==="auth/network-request-failed") break; }
+    }
+    busy=false;
+    S.pwErr=last?.code==="auth/too-many-requests"?"여러 번 틀려서 잠시 막혔어요.":last?.code==="auth/network-request-failed"?"인터넷 연결을 확인해 주세요.":"비밀번호가 올바르지 않아요.";
+    render();
+  }
+  input.addEventListener("keydown",e=>{if(e.key==="Enter")go();});
+  return D({background:"linear-gradient(135deg,#1E293B,#334155)",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"},
+    D({background:"#fff",borderRadius:"24px",padding:"32px 28px",width:"320px",textAlign:"center"},
+      D({fontSize:"40px",marginBottom:"6px"},"🎲"),
+      D({fontWeight:"900",fontSize:"20px",marginBottom:"4px"},"랜덤 팀 짜기"),
+      D({fontSize:"13px",color:"#94A3B8",marginBottom:"18px"},"어쩜조아 비밀번호로 들어와요"),
+      input, S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null, btn));
+}
+
+function buildMain(){
+  if(S.week==null&&S.settingsLoaded){ S.week=openWeek()??upcomingWeekByDate()??1; }
+  const att=attendees();
+  const nAtt=att.sparks.length+att.tnt.length;
+  const unset=[...att.sparks,...att.tnt].filter(k=>!S.sport[k.id]).length;
+
+  // 헤더
+  const weekSel=el("select",{style:{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}});
+  WEEKS.filter(w=>w>0).forEach(w=>{
+    const o=el("option",{value:String(w)},`${S.closedWeeks.includes(w)?"🔒":"✅"} ${w}주차 ${WEEK_DATES[w]||""}`);
+    if(w===S.week) o.selected=true;
+    weekSel.appendChild(o);
+  });
+  weekSel.addEventListener("change",()=>{S.week=Number(weekSel.value);S.result=null;render();});
+  const header=D({background:"#1E293B",color:"#fff",padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"},
+    D({display:"flex",alignItems:"center",gap:"10px"},
+      el("a",{href:"./",style:{color:"#94A3B8",textDecoration:"none",fontSize:"13px",fontWeight:"700"}},"← 어쩜조아"),
+      D({fontWeight:"800",fontSize:"15px"},"🎲 랜덤 팀")),
+    weekSel);
+
+  // 출석 요약
+  const summary=D({display:"flex",background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",overflow:"hidden",marginBottom:"12px"},
+    ...[["출석",nAtt],["스팍스",att.sparks.length],["티앤티",att.tnt.length]].map(([l,v],i)=>
+      D({flex:"1",textAlign:"center",padding:"10px 4px",borderLeft:i?"1px solid #F1F5F9":"none"},
+        D({fontSize:"11px",color:"#94A3B8",fontWeight:"600"},l),
+        D({fontSize:"20px",fontWeight:"800"},String(v)))));
+
+  const guide=D({fontSize:"12px",color:"#64748B",lineHeight:"1.6",background:"#F8FAFC",border:"1px solid #E2E8F0",
+    borderRadius:"10px",padding:"9px 12px",marginBottom:"12px"},
+    D({},"운동 점수 ",SP({fontWeight:"800",color:"#1E293B"},"3 잘함 · 2 보통 · 1 약함"),"  (안 누르면 2로 계산)"),
+    D({color:"#94A3B8"},"한 번 입력하면 저장돼서 다음 주에도 그대로 쓰여요. 암송은 이번 학기 끝난 주차 누적이에요."));
+
+  const deptLists=DEPTS.map(dp=>buildDeptList(dp,att[dp.id]));
+
+  const goBtn=B({width:"100%",background:nAtt?"linear-gradient(135deg,#1E293B,#334155)":"#CBD5E1",color:"#fff",border:"none",
+    borderRadius:"14px",padding:"16px",fontWeight:"800",fontSize:"17px",cursor:nAtt?"pointer":"default",margin:"6px 0 4px"},
+    ()=>{
+      if(!nAtt){toast("출석한 아이가 없어요");return;}
+      S.result=makeTeams(); render();
+      setTimeout(()=>document.getElementById("result")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
+    },S.result?"🔀 다시 섞기":"🎲 팀 짜기");
+  const unsetNote=unset?D({fontSize:"11px",color:"#B45309",textAlign:"center",marginBottom:"8px"},`운동 점수 미입력 ${unset}명 (보통으로 계산)`):null;
+
+  return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
+    header,
+    D({padding:"14px 14px 60px"},
+      !S.settingsLoaded?D({color:"#94A3B8",textAlign:"center",padding:"20px"},"불러오는 중..."):null,
+      summary,guide,...deptLists,goBtn,unsetNote,
+      S.result?buildResult():null));
+}
+
+function buildDeptList(dp,kids){
+  const open=S.open[dp.id];
+  const head=D({display:"flex",alignItems:"center",gap:"8px",padding:"8px 2px",borderBottom:`2px solid ${dp.color}`,cursor:"pointer",userSelect:"none"},
+    SP({fontWeight:"800",fontSize:"14px",color:dp.color},dp.name),
+    SP({fontSize:"12px",color:"#94A3B8"},kids.length+"명 출석"),
+    D({flex:"1"}),
+    SP({fontSize:"12px",color:"#94A3B8"},open?"접기 ▲":"운동 점수 입력 ▼"));
+  head.addEventListener("click",()=>{S.open[dp.id]=!open;render();});
+  const wrap=D({marginBottom:"14px"},head);
+  if(!open) return wrap;
+  if(!kids.length){ wrap.appendChild(D({textAlign:"center",color:"#94A3B8",fontSize:"13px",padding:"14px"},"출석한 아이가 없어요")); return wrap; }
+  const list=D({background:"#fff",border:"1px solid #E2E8F0",borderRadius:"10px",overflow:"hidden",marginTop:"6px"});
+  kids.forEach((k,i)=>{
+    const cur=S.sport[k.id];
+    const btns=D({display:"flex",gap:"4px",flexShrink:"0"},
+      ...[1,2,3].map(v=>{
+        const on=cur===v, implied=!cur&&v===SPORT_DEFAULT;
+        return B({width:"36px",height:"34px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",padding:"0",
+          border:on?"2px solid #1E293B":implied?"1.5px dashed #CBD5E1":"1px solid #E2E8F0",
+          background:on?"#1E293B":"#fff",color:on?"#fff":implied?"#94A3B8":"#64748B"},
+          ()=>setSport(k.id,v),String(v));
+      }));
+    list.appendChild(D({display:"flex",alignItems:"center",gap:"8px",padding:"8px 10px",borderTop:i?"1px solid #F1F5F9":"none"},
+      D({flex:"1",minWidth:"0"},
+        D({display:"flex",alignItems:"baseline",gap:"6px"},
+          SP({fontWeight:"700",fontSize:"15px"},k.name),
+          SP({fontSize:"11px",color:"#94A3B8"},[gradeLabel(k.grade),k.handbook].filter(Boolean).join(" · "))),
+        D({fontSize:"11px",color:"#D97706",fontWeight:"600",marginTop:"1px"},"누적 암송 "+k.sign)),
+      btns));
+  });
+  wrap.appendChild(list);
+  return wrap;
+}
+
+function buildResult(){
+  const res=S.result;
+  const showN=S.showNums;
+  const stat=list=>({n:list.length,sign:r1(sum(list,k=>k.sign)),sport:sum(list,k=>k.sport)});
+
+  // 균형 요약 (팀 간 최대 차이)
+  const rows=[["스팍스",c=>c.spk],["티앤티",c=>c.tnt],["합산",c=>[...c.spk,...c.tnt]]].map(([label,f])=>{
+    const st=res.colors.map(c=>stat(f(c)));
+    return {label,n:range(st.map(x=>x.n)),sign:r1(range(st.map(x=>x.sign))),sport:range(st.map(x=>x.sport))};
+  });
+  const balance=D({background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",padding:"10px 12px",marginBottom:"12px"},
+    D({fontSize:"12px",fontWeight:"700",color:"#64748B",marginBottom:"6px"},"⚖️ 팀 간 최대 차이"),
+    D({display:"grid",gridTemplateColumns:"64px 1fr 1fr 1fr",gap:"4px 6px",fontSize:"13px",alignItems:"center"},
+      SP({}),...["인원","암송","운동"].map(h=>SP({fontSize:"11px",color:"#94A3B8",textAlign:"center"},h)),
+      ...rows.flatMap(r=>[
+        SP({fontWeight:"700",color:r.label==="합산"?"#1E293B":"#64748B"},r.label),
+        SP({textAlign:"center",fontWeight:"700"},r.n+"명"),
+        SP({textAlign:"center",fontWeight:"700"},String(r.sign)),
+        SP({textAlign:"center",fontWeight:"700",color:r.sport>SPORT_TOL?"#DC2626":"#1E293B"},String(r.sport))])));
+
+  const nameChips=(list)=>D({display:"flex",flexWrap:"wrap",gap:"4px 10px"},
+    ...(list.length?list.map(k=>SP({fontSize:"16px",fontWeight:"700",whiteSpace:"nowrap"},k.name,
+      showN?SP({fontSize:"10px",color:"#94A3B8",fontWeight:"600",marginLeft:"3px"},`${k.sign}·${k.sport}`):null))
+      :[SP({fontSize:"13px",color:"#CBD5E1"},"없음")]));
+
+  const cards=res.colors.map(c=>{
+    const t=TEAMS.find(x=>x.id===c.tid);
+    const s=stat(c.spk), tn=stat(c.tnt), all=stat([...c.spk,...c.tnt]);
+    const sub=(label,st,list,color)=>D({padding:"8px 0",borderTop:"1px solid "+t.color+"33"},
+      D({display:"flex",alignItems:"baseline",gap:"6px",marginBottom:"4px"},
+        SP({fontSize:"12px",fontWeight:"800",color},label),
+        SP({fontSize:"11px",color:"#94A3B8"},`${st.n}명`+(showN?` · 암송 ${st.sign} · 운동 ${st.sport}`:""))),
+      nameChips(list));
+    return D({background:"#fff",border:`2px solid ${t.color}`,borderRadius:"14px",padding:"10px 12px",marginBottom:"10px"},
+      D({display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"4px"},
+        SP({fontWeight:"900",fontSize:"18px",color:t.color},t.name+"팀"),
+        SP({fontSize:"12px",color:"#64748B",fontWeight:"600"},`${all.n}명`+(showN?` · 암송 ${all.sign} · 운동 ${all.sport}`:""))),
+      sub("스팍스",s,c.spk,"#EF4444"),
+      sub("티앤티",tn,c.tnt,"#16A34A"));
+  });
+
+  const copy=()=>{
+    const lines=[`[어와나 ${res.week}주차 (${WEEK_DATES[res.week]||""}) 팀]`];
+    res.colors.forEach(c=>{
+      const t=TEAMS.find(x=>x.id===c.tid);
+      lines.push("",`${t.dot} ${t.name}팀`,
+        `스팍스: ${c.spk.map(k=>k.name).join(", ")||"-"}`,
+        `티앤티: ${c.tnt.map(k=>k.name).join(", ")||"-"}`);
+    });
+    copyText(lines.join("\n"),"📋 팀 명단을 복사했어요");
+  };
+  const tools=D({display:"flex",gap:"6px",marginBottom:"10px"},
+    B({flex:"1",background:"#fff",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px",fontWeight:"700",fontSize:"13px",color:"#475569",cursor:"pointer"},
+      ()=>{S.showNums=!showN;render();},showN?"🙈 숫자 숨기기":"👀 숫자 보기"),
+    B({flex:"1",background:"#FEE500",border:"none",borderRadius:"10px",padding:"10px",fontWeight:"800",fontSize:"13px",color:"#1E293B",cursor:"pointer"},
+      copy,"📋 명단 복사"));
+
+  return D({marginTop:"14px"},
+    el("div",{id:"result"}),
+    D({fontWeight:"800",fontSize:"16px",marginBottom:"8px"},"🎉 이번 팀"),
+    showN?balance:null,tools,
+    D({className:"pop"},...cards),
+    showN?D({fontSize:"11px",color:"#94A3B8",textAlign:"center"},"이름 옆 작은 숫자 = 누적 암송 · 운동 점수"):null);
+}
+
+// ════════════════════════════════════
+//  데이터 수신 (로그인 후에만)
+// ════════════════════════════════════
+let started=false;
+function startListeners(){
+  if(started) return; started=true;
+  onSnapshot(doc(db,"awana","students"),snap=>{S.students=snap.exists()?(snap.data().list||[]):[];render();});
+  onSnapshot(doc(db,"awana","settings"),snap=>{
+    S.closedWeeks=snap.exists()?(snap.data().closedWeeks||[]):[];
+    S.settingsLoaded=true; render();
+  });
+  onSnapshot(doc(db,"awana","random"),snap=>{S.sport=snap.exists()?(snap.data().sport||{}):{};render();},
+    err=>console.warn("[random] 운동 점수 수신 실패",err));
+  WEEKS.filter(w=>w>0).forEach(w=>{
+    onSnapshot(doc(db,"awana",`week_${w}`),snap=>{S.wdata[w]=snap.exists()?snap.data():null;render();});
+  });
+}
+onAuthStateChanged(auth,user=>{
+  S.user=user||null;
+  if(user) startListeners();
+  S.loaded=true; render();
+});
+render();
+</script>
+</body>
+</html>
