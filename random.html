@@ -464,6 +464,9 @@ function buildResult(){
     });
     copyText(lines.join("\n"),"📋 팀 명단을 복사했어요");
   };
+  const announceBtn=B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",
+    borderRadius:"12px",padding:"13px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"8px"},
+    ()=>openAnnounce(false),"📺 팀 발표 화면");
   const tools=D({display:"flex",gap:"6px",marginBottom:"10px"},
     B({flex:"1",background:"#fff",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px",fontWeight:"700",fontSize:"13px",color:"#475569",cursor:"pointer"},
       ()=>{S.showNums=!showN;render();},showN?"🙈 숫자 숨기기":"👀 숫자 보기"),
@@ -473,9 +476,110 @@ function buildResult(){
   return D({marginTop:"14px"},
     el("div",{id:"result"}),
     D({fontWeight:"800",fontSize:"16px",marginBottom:"8px"},"🎉 이번 팀"),
-    showN?balance:null,tools,
+    announceBtn,showN?balance:null,tools,
     D({className:"pop"},...cards),
     showN?D({fontSize:"11px",color:"#94A3B8",textAlign:"center"},"이름 옆 작은 숫자 = 누적 암송 · 운동 점수"):null);
+}
+
+// ════════════════════════════════════
+//  📺 팀 발표 화면 — 이름이 빠르게 섞이다가 4팀이 동시에 위에서부터 좌라락 확정 (약 2.5초)
+//  render()와 분리해 body에 직접 붙인다 (발표 중 데이터가 갱신돼도 화면이 끊기지 않게)
+// ════════════════════════════════════
+const SOUNDS={
+  drumroll:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/drumroll.mp3",
+  chime:"https://raw.githubusercontent.com/sydcawana/awana/main/sounds/chime.mp3",
+};
+const _au={};
+function sound(key,on=true){
+  try{
+    if(!_au[key]) _au[key]=new Audio(SOUNDS[key]);
+    const a=_au[key];
+    if(on){a.currentTime=0;a.play().catch(()=>{});} else {a.pause();a.currentTime=0;}
+  }catch(e){}
+}
+const SHUFFLE_MS=1200;   // 다 같이 섞이는 시간
+const STEP_MS=80;        // 한 줄씩 확정되는 간격 (4팀 동시에)
+let _ann=null;
+function closeAnnounce(){
+  if(!_ann) return;
+  clearInterval(_ann.timer); _ann.timeouts.forEach(clearTimeout);
+  sound("drumroll",false);
+  _ann.wrap.remove(); _ann=null;
+  document.removeEventListener("keydown",_annKey);
+  if(document.fullscreenElement) document.exitFullscreen?.().catch(()=>{});
+}
+function _annKey(e){ if(e.key==="Escape") closeAnnounce(); }
+function openAnnounce(reshuffle){
+  if(reshuffle){ S.result=makeTeams(); render(); }
+  const res=S.result; if(!res) return;
+  const wasOpen=!!_ann;
+  if(_ann){ clearInterval(_ann.timer); _ann.timeouts.forEach(clearTimeout); _ann.wrap.remove(); }
+  else{
+    document.addEventListener("keydown",_annKey);
+    if(window.innerWidth>=900) document.documentElement.requestFullscreen?.().catch(()=>{});   // 모니터(PC)면 전체화면
+  }
+  const att=attendees();
+  const pool={spk:att.sparks.map(k=>k.name),tnt:att.tnt.map(k=>k.name)};
+  const rnd=a=>a.length?a[Math.floor(Math.random()*a.length)]:"";
+
+  const wrap=D({position:"fixed",inset:"0",background:"#fff",zIndex:"1000",display:"flex",flexDirection:"column",
+    padding:"clamp(10px,2vw,28px)",boxSizing:"border-box",overflow:"auto"});
+  const title=D({textAlign:"center",fontWeight:"900",fontSize:"clamp(22px,4vw,52px)",color:"#1E293B",
+    marginBottom:"clamp(8px,1.5vh,20px)"},"🎲 팀을 섞는 중...");
+  const grid=D({flex:"1",display:"grid",gap:"clamp(8px,1.2vw,18px)",
+    gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,300px),1fr))",alignContent:"start"});
+  const slotsByCard=[];
+  res.colors.forEach(c=>{
+    const t=TEAMS.find(x=>x.id===c.tid);
+    const card=D({border:`clamp(3px,0.4vw,6px) solid ${t.color}`,borderRadius:"18px",background:t.light,
+      padding:"clamp(8px,1.2vw,18px)",display:"flex",flexDirection:"column",gap:"clamp(6px,1vh,12px)"},
+      D({fontWeight:"900",fontSize:"clamp(24px,3.2vw,48px)",color:t.color,textAlign:"center"},t.name+"팀"));
+    const slots=[];
+    [["스팍스","#EF4444",c.spk,pool.spk],["티앤티","#16A34A",c.tnt,pool.tnt]].forEach(([label,color,list,pl])=>{
+      if(!list.length) return;
+      const box=D({display:"flex",flexWrap:"wrap",gap:"4px 14px",justifyContent:"center"});
+      list.forEach(k=>{
+        const s=SP({fontWeight:"800",fontSize:"clamp(18px,2.2vw,34px)",color:"#CBD5E1",whiteSpace:"nowrap",
+          display:"inline-block",minWidth:"3.2em",textAlign:"center"},rnd(pl));
+        box.appendChild(s); slots.push({el:s,final:k.name,pool:pl,done:false});
+      });
+      card.appendChild(D({background:"#fff",borderRadius:"12px",padding:"clamp(6px,1vh,12px)"},
+        D({fontSize:"clamp(12px,1.3vw,18px)",fontWeight:"800",color,textAlign:"center",marginBottom:"4px"},label),box));
+    });
+    slotsByCard.push(slots);
+    grid.appendChild(card);
+  });
+  const btnStyle={border:"none",borderRadius:"12px",padding:"clamp(10px,1.4vh,16px) clamp(16px,2vw,32px)",
+    fontWeight:"800",fontSize:"clamp(14px,1.6vw,20px)",cursor:"pointer"};
+  const bar=D({display:"flex",gap:"10px",justifyContent:"center",marginTop:"clamp(10px,2vh,24px)",visibility:"hidden"},
+    B({...btnStyle,background:"#1E293B",color:"#fff"},()=>openAnnounce(true),"🔀 다시 섞기"),
+    B({...btnStyle,background:"#F1F5F9",color:"#64748B"},closeAnnounce,"닫기"));
+  // 섞는 중에도 닫을 수 있게 작은 X
+  const x=B({position:"fixed",top:"10px",right:"14px",background:"none",border:"none",fontSize:"26px",color:"#CBD5E1",cursor:"pointer",zIndex:"1001"},closeAnnounce,"×");
+  wrap.appendChild(x); wrap.appendChild(title); wrap.appendChild(grid); wrap.appendChild(bar);
+  document.body.appendChild(wrap);
+
+  _ann={wrap,timer:null,timeouts:[]};
+  sound("drumroll");
+  _ann.timer=setInterval(()=>{
+    slotsByCard.flat().forEach(s=>{ if(!s.done) s.el.textContent=rnd(s.pool); });
+  },60);
+  const maxLen=Math.max(0,...slotsByCard.map(s=>s.length));
+  for(let i=0;i<maxLen;i++){
+    _ann.timeouts.push(setTimeout(()=>{
+      slotsByCard.forEach(slots=>{
+        const s=slots[i]; if(!s) return;
+        s.done=true; s.el.textContent=s.final;
+        Object.assign(s.el.style,{color:"#1E293B"}); s.el.className="pop";
+      });
+    },SHUFFLE_MS+i*STEP_MS));
+  }
+  _ann.timeouts.push(setTimeout(()=>{
+    clearInterval(_ann.timer);
+    sound("drumroll",false); sound("chime");
+    title.textContent="🎉 이번 주 팀 발표!";
+    bar.style.visibility="visible";
+  },SHUFFLE_MS+maxLen*STEP_MS+150));
 }
 
 // ════════════════════════════════════
