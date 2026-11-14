@@ -84,7 +84,7 @@ const HB_GROUPS = [
   {label:"T&T",  color:"#16A34A",light:"#F0FFF4",border:"#22C55E",books:["어드벤처1","어드벤처2","챌린지1","챌린지2"]},
 ];
 // 배포 확인용 버전 (설정 헤더에 표시됨) — 파일을 바꿀 때마다 올려주세요
-const APP_VER = "2026-2학기 v15";
+const APP_VER = "2026-2학기 v16";
 
 // ⚠️ 매 학기 이 줄만 갈아끼우면 됩니다 (0번은 테스트 주차)
 // 2학기: 8/23 개강 ~ 12/6 종강, 9/27 휴강 (10/25는 진행 → 9주차)
@@ -294,7 +294,7 @@ async function addLog(sid, event, detail){
       studentId:sid,
       name:st.name,
       grade:st.grade||"",
-      team:st.team||"",
+      team:stTeam(st)||"",
       handbook:st.handbook||"",
       week:S.week,
       date:dateStr,
@@ -534,6 +534,36 @@ function initWD(){return{students:{},teachers:{},games:{sparks:initGame(1),tnt:i
 function getWD(){return S.wdata[S.week]||initWD();}
 function getSD(sid){return getWD().students?.[sid]||{attendance:false,uniform:false,signs:0};}
 function getTeam(tid){return TEAMS.find(t=>t.id===tid)||TEAMS[0];}
+// ── 주차별 임시 팀 (random.html에서 확정한 랜덤 팀) ──
+//  week_N.teams = {학생id: 팀id} 가 있으면 그 주차는 임시 팀으로 계산·표시하고,
+//  없으면 공식 팀(students.team)을 쓴다. → 임시 팀이 없는 지난 주차 점수는 그대로 유지
+function stTeam(st,wd=getWD()){return wd?.teams?.[st.id]||st.team;}
+function hasTempTeams(wd){return !!(wd?.teams&&Object.keys(wd.teams).length);}
+// 임시 팀 주차에 늦게 온 아이 → 같은 부서(스팍스/티앤티)에서 출석 인원이 가장 적은 팀 (동점이면 무작위)
+function smallestTempTeam(wd,sid){
+  const st=S.students.find(s=>s.id===sid); if(!st) return null;
+  const grp=getAwardGroup(st.handbook||"");
+  const cnt={}; TEAMS.forEach(t=>cnt[t.id]=0);
+  S.students.forEach(s=>{
+    if(s.id===sid||getAwardGroup(s.handbook||"")!==grp) return;
+    const tid=wd.teams?.[s.id];
+    if(tid&&wd.students?.[s.id]?.attendance&&cnt[tid]!=null) cnt[tid]++;
+  });
+  const min=Math.min(...Object.values(cnt));
+  const cands=TEAMS.filter(t=>cnt[t.id]===min);
+  return cands[Math.floor(Math.random()*cands.length)].id;
+}
+// 출석으로 바뀌는 아이들 중 임시 팀이 없는 아이에게 팀 배정 (wd를 직접 고치고, 저장할 필드를 flat에 추가)
+function assignLateTeams(wd,sids,flat){
+  if(!hasTempTeams(wd)) return;
+  sids.forEach(sid=>{
+    if(wd.teams[sid]) return;
+    const tid=smallestTempTeam(wd,sid); if(!tid) return;
+    wd.teams[sid]=tid; flat[`teams.${sid}`]=tid;
+    const nm=S.students.find(s=>s.id===sid)?.name||"";
+    showToast(`🎲 ${nm} → ${getTeam(tid).name}팀 (임시 팀)`);
+  });
+}
 function hbStu(hb){return S.students.filter(s=>s.handbook===hb);}
 const TEAM_DOTS={"red":"🔴","yellow":"🟡","green":"🟢","blue":"🔵"};
 function isLocked(){return S.closedWeeks.includes(S.week);}
@@ -592,7 +622,7 @@ function calcStuScore(wd,sid){
   const{attScore:a=50,uniScore:u=50,signScore:sg=50}=S.settings;
   return (d.attendance?a:0)+(d.uniform?u:0)+((d.signs||0)*sg);
 }
-function calcTeamHb(wd,tid){return S.students.filter(s=>s.team===tid).reduce((s,st)=>s+calcStuScore(wd,st.id),0);}
+function calcTeamHb(wd,tid){return S.students.filter(s=>stTeam(s,wd)===tid).reduce((s,st)=>s+calcStuScore(wd,st.id),0);}
 function calcGameCum(wd,type,tid){return(wd?.games?.[type]?.rounds||[]).reduce((s,r)=>s+(r.scores?.[tid]||0),0);}
 function calcRankScores(wd,type){
   const fp=S.settings.firstPlace, gap=S.settings.gap;
@@ -643,9 +673,10 @@ async function setSD(sid,patch){
   if(isLocked()) return;
   const wd=JSON.parse(JSON.stringify(getWD()));
   wd.students[sid]={...(wd.students[sid]||{attendance:false,uniform:false,signs:0}),...patch};
-  S.wdata[S.week]=wd; render();
   // 해당 학생 필드만 부분 업데이트 → 게임 데이터 덮어쓰기 방지
   const flat={"_savedAt":Date.now()};
+  if(patch.attendance===true) assignLateTeams(wd,[sid],flat);   // 임시 팀 주차에 늦게 온 아이
+  S.wdata[S.week]=wd; render();
   Object.entries(patch).forEach(([k,v])=>{flat[`students.${sid}.${k}`]=v;});
   try{ await updateDoc(doc(db,"awana",`week_${S.week}`),flat); }
   catch(e){ await saveWeek(S.week); }
@@ -696,7 +727,7 @@ async function saveWeekLog(w){
       rows[st.id]={
         name:st.name,
         grade:st.grade||"",
-        team:st.team||"",
+        team:stTeam(st,wd)||"",
         handbook:st.handbook||"",
         week:w,
         date:dateStr,
@@ -1649,6 +1680,8 @@ function buildApp(){
 
   return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
     header,displayBanner,lockBanner,
+    hasTempTeams(getWD())&&!S._isDisplay?D({background:"#F5F3FF",borderBottom:"2px solid #A855F7",padding:"7px 16px",fontSize:"12px",color:"#6D28D9",fontWeight:"700",display:"flex",alignItems:"center",gap:"6px"},
+      SP({},"🎲"),"이번 주는 랜덤 임시 팀이에요 (점수·명단 모두 임시 팀 기준)"):null,
     (S.role==="admin"||S.role==="general")&&!S._isDisplay?buildBibleBanner():null,
     tabBar,
     (()=>{
@@ -1797,7 +1830,7 @@ function buildHbDetail(hb){
   );
 
   const cards=stuList.map(s=>{
-    const d=getSD(s.id),t=getTeam(s.team);
+    const d=getSD(s.id),t=getTeam(stTeam(s));
     const isTnt=getAwardGroup(hb)==="tnt";
     const aw=d.awards||{};
     const _attInfo=getAttAwardInfo(S.week);
@@ -2131,7 +2164,7 @@ function buildGameType(type,wd,fin,locked){
 function buildResult(sorted){
   const wd=getWD();
   function teamHbGroup(tid,grp){
-    return S.students.filter(s=>s.team===tid&&grp.books.includes(s.handbook))
+    return S.students.filter(s=>stTeam(s)===tid&&grp.books.includes(s.handbook))
       .reduce((sum,st)=>sum+stuScore(st.id),0);
   }
   const sparksGrp=HB_GROUPS.find(g=>g.label==="Sparks");
@@ -2183,7 +2216,7 @@ function buildResult(sorted){
 function buildAwardPopup(){
   const {sid,name,hb}=S.awardPopup;
   const st=S.students.find(s=>s.id===sid);
-  const t=getTeam(st?.team||"red");
+  const t=getTeam(st?stTeam(st):"red");
   const isSpks=getAwardGroup(hb)==="sparks";
   const cur=getAwards(sid);
   const past=getPastAwards(sid);
@@ -4136,7 +4169,7 @@ function buildStatsView(){
         },0);
         const cumSigns=Object.entries(S.wdata).reduce((sum,[wk,wd2])=>{
           if(!isCountedWeek(wk)) return sum; // 아직 진행 안 한 주차 제외
-          return sum+S.students.filter(s=>s.team===t.id).reduce((s2,st)=>{
+          return sum+S.students.filter(s=>stTeam(s,wd2)===t.id).reduce((s2,st)=>{
             const v=(wd2?.students||{})[st.id]?.signs||0;
             return s2+(typeof v==="number"?v:parseFloat(v)||0);
           },0);
@@ -4147,7 +4180,7 @@ function buildStatsView(){
               D({width:"8px",height:"8px",borderRadius:"50%",background:t.color,flexShrink:"0"}),
               SP({fontWeight:"600",color:"#1E293B",fontSize:"13px"},t.name+"팀")
             ),
-            SP({fontSize:"11px",color:"#94A3B8"},S.students.filter(s=>s.team===t.id).length,"명")
+            SP({fontSize:"11px",color:"#94A3B8"},S.students.filter(s=>stTeam(s)===t.id).length,"명")
           ),
           D({display:"flex",gap:"6px",marginBottom:"8px"},
             mkWinBox("🥇 우승",win1[t.id],win1Weeks[t.id]),
@@ -4197,14 +4230,14 @@ function buildSchedule(){
 
   const selTeam=S.scheduleTeam||"all";
   const isAll=selTeam==="all";
-  const teamStudents=isAll?[]:S.students.filter(s=>s.team===selTeam);
+  const teamStudents=isAll?[]:S.students.filter(s=>stTeam(s)===selTeam);
   const sparksHbs=["행글라이더","윙러너","스카이스토머"];
   const tntHbs=["어드벤처1","어드벤처2","챌린지1","챌린지2"];
 
   function mkStudentRow(s){
     const sd=wd.students?.[s.id]||{};
     const att=sd.attendance, uni=sd.uniform;
-    const t=getTeam(s.team);
+    const t=getTeam(stTeam(s));
 
     const cell=D({display:"flex",flexDirection:"column",gap:"10px",
       padding:"12px 12px",borderRadius:"12px",
@@ -4307,6 +4340,7 @@ function buildSchedule(){
         S.wdata[S.week]=wdCopy; render();
         const _flatA={"_savedAt":Date.now()};
         stuList.forEach(s=>{_flatA[`students.${s.id}.attendance`]=next;});
+        if(next){ assignLateTeams(wdCopy,stuList.map(s=>s.id),_flatA); S.wdata[S.week]=wdCopy; render(); }
         try{await updateDoc(doc(db,"awana",`week_${S.week}`),_flatA);}catch(e){await saveWeek(S.week);}
       }, allAtt?"✓ 출석":"전체 출석"):null;
 
@@ -4765,7 +4799,7 @@ function buildAwardsTab(){
     const items=awardItems(s.id,hb);
     const sd=wd?.students?.[s.id]||{attendance:false,uniform:false,signs:0};
     const locked2=isLocked();
-    const t=getTeam(s.team);
+    const t=getTeam(stTeam(s));
     const signs=typeof sd.signs==="number"?sd.signs:parseFloat(sd.signs)||0;
 
     const row=D({display:"flex",flexDirection:"column",
@@ -4837,7 +4871,7 @@ function buildAwardsTab(){
     }
 
     function teamHbScore(tid){
-      return S.students.filter(s=>s.team===tid&&[...sparksHbs,...tntHbs].includes(s.handbook))
+      return S.students.filter(s=>stTeam(s)===tid&&[...sparksHbs,...tntHbs].includes(s.handbook))
         .reduce((sum,st)=>sum+stuScore(st.id),0);
     }
 
@@ -4845,12 +4879,12 @@ function buildAwardsTab(){
       const gameSpk=wd.gameFinalized?rankScores("sparks")[t.id]:0;
       const gameTnt=wd.gameFinalized?rankScores("tnt")[t.id]:0;
       const total=totalScore(t.id);
-      const totalCount=S.students.filter(s=>s.team===t.id).length;
-      const attCount=S.students.filter(s=>s.team===t.id&&(wd.students?.[s.id]||{}).attendance).length;
+      const totalCount=S.students.filter(s=>stTeam(s)===t.id).length;
+      const attCount=S.students.filter(s=>stTeam(s)===t.id&&(wd.students?.[s.id]||{}).attendance).length;
       const rank=rankOf[t.id];
 
       function clubStats(hbs, gameScore){
-        const members=S.students.filter(s=>s.team===t.id&&hbs.includes(s.handbook));
+        const members=S.students.filter(s=>stTeam(s)===t.id&&hbs.includes(s.handbook));
         const att=members.filter(s=>(wd.students?.[s.id]||{}).attendance).length;
         const uni=members.filter(s=>(wd.students?.[s.id]||{}).uniform).length;
         const signs=members.reduce((sum,s)=>{
@@ -4902,7 +4936,7 @@ function buildAwardsTab(){
           display:"flex",flexDirection:"column",gap:"6px",flex:"1"});
         // 클럽 헤더 (클릭 시 멤버 팝업)
         const hbs=type==="sparks"?sparksHbs:tntHbs;
-        const members=S.students.filter(s=>s.team===t.id&&hbs.includes(s.handbook))
+        const members=S.students.filter(s=>stTeam(s)===t.id&&hbs.includes(s.handbook))
           .sort((a,b)=>a.name.localeCompare(b.name,"ko"));
         const hdr=D({display:"flex",alignItems:"center",gap:"4px",marginBottom:"2px",
           cursor:"pointer",borderRadius:"6px",padding:"2px 4px",
