@@ -494,7 +494,7 @@ function buildBalance(){
   const perTeam=res.colors.map(c=>{
     const t=TEAMS.find(x=>x.id===c.tid), a=teamStat([...c.spk,...c.tnt]);
     return D({display:"flex",alignItems:"center",gap:"8px",fontSize:"13px",padding:"5px 0",borderTop:"1px solid #F1F5F9"},
-      SP({fontWeight:"800",color:t.color,width:"44px"},t.name),
+      SP({fontWeight:"800",color:t.color,width:"70px"},"임시 "+t.name),
       SP({flex:"1",color:"#64748B"},`${a.n}명 · 암송 ${a.sign} · 운동 ${a.sport}`));
   });
   return D({background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",padding:"10px 12px",marginTop:"6px"},
@@ -518,15 +518,15 @@ function buildResult(){
       SP({fontSize:"12px",fontWeight:"800",color,marginRight:"8px"},label),
       SP({fontSize:"15px",fontWeight:"700"},list.map(k=>k.name).join(", ")||"-"));
     return D({background:"#fff",border:`2px solid ${t.color}`,borderRadius:"14px",padding:"10px 12px",marginBottom:"10px"},
-      D({fontWeight:"900",fontSize:"17px",color:t.color,marginBottom:"2px"},t.name+"팀"),
+      D({fontWeight:"900",fontSize:"17px",color:t.color,marginBottom:"2px"},"임시 "+t.name+"팀"),
       sub("스팍스",c.spk,"#EF4444"),
       sub("티앤티",c.tnt,"#16A34A"));
   });
   const copy=()=>{
-    const lines=[`[어와나 ${res.week}주차 (${WEEK_DATES[res.week]||""}) 팀]`];
+    const lines=[`[어와나 ${res.week}주차 (${WEEK_DATES[res.week]||""}) 임시 팀]`];
     res.colors.forEach(c=>{
       const t=TEAMS.find(x=>x.id===c.tid);
-      lines.push("",`${t.dot} ${t.name}팀`,
+      lines.push("",`${t.dot} 임시 ${t.name}팀`,
         `스팍스: ${c.spk.map(k=>k.name).join(", ")||"-"}`,
         `티앤티: ${c.tnt.map(k=>k.name).join(", ")||"-"}`);
     });
@@ -601,7 +601,7 @@ function showStandby(){
   w.appendChild(x);
   w.appendChild(D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"clamp(14px,3vh,30px)"},
     img,
-    D({fontWeight:"900",fontSize:"clamp(28px,5vw,64px)",color:"#1E293B",textAlign:"center"},"🎲 이번 주 팀 발표"),
+    D({fontWeight:"900",fontSize:"clamp(28px,5vw,64px)",color:"#1E293B",textAlign:"center"},"🎲 이번 주 임시 팀 발표"),
     D({display:"flex",gap:"10px",justifyContent:"center"},
       ...TEAMS.map(t=>D({width:"clamp(36px,5vw,70px)",height:"clamp(36px,5vw,70px)",borderRadius:"14px",background:t.color}))),
     B({...btnStyle,background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",
@@ -628,7 +628,7 @@ function runAnnounce(){
     const t=TEAMS.find(x=>x.id===c.tid);
     const card=D({border:`clamp(3px,0.4vw,6px) solid ${t.color}`,borderRadius:"18px",background:t.light,
       padding:"clamp(8px,1.2vw,18px)",display:"flex",flexDirection:"column",gap:"clamp(6px,1vh,12px)"},
-      D({fontWeight:"900",fontSize:"clamp(24px,3.2vw,48px)",color:t.color,textAlign:"center"},t.name+"팀"));
+      D({fontWeight:"900",fontSize:"clamp(24px,3.2vw,48px)",color:t.color,textAlign:"center"},"임시 "+t.name+"팀"));
     const slots=[];
     [["스팍스","#EF4444",c.spk,pool.spk],["티앤티","#16A34A",c.tnt,pool.tnt]].forEach(([label,color,list,pl])=>{
       if(!list.length) return;
@@ -668,7 +668,7 @@ function runAnnounce(){
   _ann.timeouts.push(setTimeout(()=>{
     clearInterval(_ann.timer); _ann.state="done";
     sound("drumroll",false); sound("chime");
-    title.textContent="🎉 이번 주 팀 발표!";
+    title.textContent="🎉 이번 주 임시 팀 발표!";
     bar.style.visibility="visible";
   },SHUFFLE_MS+maxLen*STEP_MS+150));
 }
