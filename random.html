@@ -79,7 +79,7 @@ const S = {
   week:null,           // 팀을 짤 주차
   open:{sparks:true,tnt:true},
   result:null,         // 팀 짜기 결과
-  showNums:true,       // 결과에 암송·운동 숫자 표시
+  view:"main",         // "main"(발표용) | "settings"(교사용)
 };
 
 // ════════════════════════════════════
@@ -328,13 +328,15 @@ function buildLogin(){
       input, S.pwErr?D({fontSize:"13px",color:"#EF4444",marginBottom:"10px"},S.pwErr):null, btn));
 }
 
+// ── 화면 구성 ──
+//  · 메인(발표용): 아이별 숫자 없음. 출석 인원 + [📺 팀 발표] + 결과 명단(이름만)
+//  · ⚙️ 설정(교사용): 운동 점수 입력, 누적 암송, 팀 균형 숫자 — 아이들에게 보이지 않게 따로
 function buildMain(){
   if(S.week==null&&S.settingsLoaded){ S.week=openWeek()??upcomingWeekByDate()??1; }
+  const isSet=S.view==="settings";
   const att=attendees();
   const nAtt=att.sparks.length+att.tnt.length;
-  const unset=[...att.sparks,...att.tnt].filter(k=>!S.sport[k.id]).length;
 
-  // 헤더
   const weekSel=el("select",{style:{background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"5px 8px",fontSize:"12px"}});
   WEEKS.filter(w=>w>0).forEach(w=>{
     const o=el("option",{value:String(w)},`${S.closedWeeks.includes(w)?"🔒":"✅"} ${w}주차 ${WEEK_DATES[w]||""}`);
@@ -344,39 +346,46 @@ function buildMain(){
   weekSel.addEventListener("change",()=>{S.week=Number(weekSel.value);S.result=null;render();});
   const header=D({background:"#1E293B",color:"#fff",padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"},
     D({display:"flex",alignItems:"center",gap:"10px"},
-      el("a",{href:"./",style:{color:"#94A3B8",textDecoration:"none",fontSize:"13px",fontWeight:"700"}},"← 어쩜조아"),
-      D({fontWeight:"800",fontSize:"15px"},"🎲 랜덤 팀")),
-    weekSel);
+      isSet
+        ? B({background:"none",border:"none",color:"#94A3B8",fontSize:"13px",fontWeight:"700",cursor:"pointer",padding:"0"},()=>{S.view="main";render();},"← 돌아가기")
+        : el("a",{href:"./",style:{color:"#94A3B8",textDecoration:"none",fontSize:"13px",fontWeight:"700"}},"← 어쩜조아"),
+      D({fontWeight:"800",fontSize:"15px"},isSet?"⚙️ 팀 설정":"🎲 랜덤 팀")),
+    D({display:"flex",gap:"6px",alignItems:"center"},
+      weekSel,
+      !isSet?B({background:"#334155",color:"#fff",border:"none",borderRadius:"8px",padding:"6px 8px",fontSize:"14px",cursor:"pointer"},
+        ()=>{S.view="settings";render();window.scrollTo(0,0);},"⚙️"):null));
 
-  // 출석 요약
   const summary=D({display:"flex",background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",overflow:"hidden",marginBottom:"12px"},
     ...[["출석",nAtt],["스팍스",att.sparks.length],["티앤티",att.tnt.length]].map(([l,v],i)=>
       D({flex:"1",textAlign:"center",padding:"10px 4px",borderLeft:i?"1px solid #F1F5F9":"none"},
         D({fontSize:"11px",color:"#94A3B8",fontWeight:"600"},l),
         D({fontSize:"20px",fontWeight:"800"},String(v)))));
 
-  const guide=D({fontSize:"12px",color:"#64748B",lineHeight:"1.6",background:"#F8FAFC",border:"1px solid #E2E8F0",
+  const body=D({padding:"14px 14px 60px"},
+    !S.settingsLoaded?D({color:"#94A3B8",textAlign:"center",padding:"20px"},"불러오는 중..."):null,
+    summary,
+    ...(isSet?buildSettingsBody(att):buildMainBody(nAtt)));
+  return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},header,body);
+}
+
+function buildMainBody(nAtt){
+  const unset=Object.values(attendees()).flat().filter(k=>!S.sport[k.id]).length;
+  const goBtn=B({width:"100%",background:nAtt?"linear-gradient(135deg,#7C3AED,#A855F7)":"#CBD5E1",color:"#fff",border:"none",
+    borderRadius:"14px",padding:"18px",fontWeight:"800",fontSize:"18px",cursor:nAtt?"pointer":"default",margin:"4px 0 6px"},
+    ()=>{ if(!nAtt){toast("출석한 아이가 없어요");return;} openAnnounce(); },"📺 팀 발표");
+  const note=D({fontSize:"12px",color:"#94A3B8",textAlign:"center",lineHeight:"1.6",marginBottom:"12px"},
+    "누르면 빈 발표 화면이 먼저 떠요. ▶ 시작을 눌러야 팀이 짜져요.",
+    unset?D({color:"#B45309"},`운동 점수 미입력 ${unset}명 → ⚙️ 설정에서 입력 (안 하면 보통으로 계산)`):null);
+  return [goBtn,note,S.result?buildResult():null];
+}
+
+function buildSettingsBody(att){
+  const guide=D({fontSize:"12px",color:"#64748B",lineHeight:"1.6",background:"#FFFBEB",border:"1px solid #FDE68A",
     borderRadius:"10px",padding:"9px 12px",marginBottom:"12px"},
-    D({},"운동 점수 ",SP({fontWeight:"800",color:"#1E293B"},"3 잘함 · 2 보통 · 1 약함"),"  (안 누르면 2로 계산)"),
+    D({fontWeight:"700",color:"#B45309"},"🔒 선생님용 화면이에요. 모니터에 띄우지 마세요."),
+    D({},"운동 점수 ",SP({fontWeight:"800",color:"#1E293B"},"3 잘함 · 2 보통 · 1 약함"),"  (안 누르면 2)"),
     D({color:"#94A3B8"},"한 번 입력하면 저장돼서 다음 주에도 그대로 쓰여요. 암송은 이번 학기 끝난 주차 누적이에요."));
-
-  const deptLists=DEPTS.map(dp=>buildDeptList(dp,att[dp.id]));
-
-  const goBtn=B({width:"100%",background:nAtt?"linear-gradient(135deg,#1E293B,#334155)":"#CBD5E1",color:"#fff",border:"none",
-    borderRadius:"14px",padding:"16px",fontWeight:"800",fontSize:"17px",cursor:nAtt?"pointer":"default",margin:"6px 0 4px"},
-    ()=>{
-      if(!nAtt){toast("출석한 아이가 없어요");return;}
-      S.result=makeTeams(); render();
-      setTimeout(()=>document.getElementById("result")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
-    },S.result?"🔀 다시 섞기":"🎲 팀 짜기");
-  const unsetNote=unset?D({fontSize:"11px",color:"#B45309",textAlign:"center",marginBottom:"8px"},`운동 점수 미입력 ${unset}명 (보통으로 계산)`):null;
-
-  return D({maxWidth:"480px",margin:"0 auto",minHeight:"100vh"},
-    header,
-    D({padding:"14px 14px 60px"},
-      !S.settingsLoaded?D({color:"#94A3B8",textAlign:"center",padding:"20px"},"불러오는 중..."):null,
-      summary,guide,...deptLists,goBtn,unsetNote,
-      S.result?buildResult():null));
+  return [guide,...DEPTS.map(dp=>buildDeptList(dp,att[dp.id])),S.result?buildBalance():null];
 }
 
 function buildDeptList(dp,kids){
@@ -385,7 +394,7 @@ function buildDeptList(dp,kids){
     SP({fontWeight:"800",fontSize:"14px",color:dp.color},dp.name),
     SP({fontSize:"12px",color:"#94A3B8"},kids.length+"명 출석"),
     D({flex:"1"}),
-    SP({fontSize:"12px",color:"#94A3B8"},open?"접기 ▲":"운동 점수 입력 ▼"));
+    SP({fontSize:"12px",color:"#94A3B8"},open?"접기 ▲":"펼치기 ▼"));
   head.addEventListener("click",()=>{S.open[dp.id]=!open;render();});
   const wrap=D({marginBottom:"14px"},head);
   if(!open) return wrap;
@@ -413,47 +422,46 @@ function buildDeptList(dp,kids){
   return wrap;
 }
 
-function buildResult(){
-  const res=S.result;
-  const showN=S.showNums;
-  const stat=list=>({n:list.length,sign:r1(sum(list,k=>k.sign)),sport:sum(list,k=>k.sport)});
+const teamStat=list=>({n:list.length,sign:r1(sum(list,k=>k.sign)),sport:sum(list,k=>k.sport)});
 
-  // 균형 요약 (팀 간 최대 차이)
+// 설정 화면 전용: 마지막으로 짠 팀의 균형 숫자
+function buildBalance(){
+  const res=S.result;
   const rows=[["스팍스",c=>c.spk],["티앤티",c=>c.tnt],["합산",c=>[...c.spk,...c.tnt]]].map(([label,f])=>{
-    const st=res.colors.map(c=>stat(f(c)));
+    const st=res.colors.map(c=>teamStat(f(c)));
     return {label,n:range(st.map(x=>x.n)),sign:r1(range(st.map(x=>x.sign))),sport:range(st.map(x=>x.sport))};
   });
-  const balance=D({background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",padding:"10px 12px",marginBottom:"12px"},
-    D({fontSize:"12px",fontWeight:"700",color:"#64748B",marginBottom:"6px"},"⚖️ 팀 간 최대 차이"),
-    D({display:"grid",gridTemplateColumns:"64px 1fr 1fr 1fr",gap:"4px 6px",fontSize:"13px",alignItems:"center"},
+  const perTeam=res.colors.map(c=>{
+    const t=TEAMS.find(x=>x.id===c.tid), a=teamStat([...c.spk,...c.tnt]);
+    return D({display:"flex",alignItems:"center",gap:"8px",fontSize:"13px",padding:"5px 0",borderTop:"1px solid #F1F5F9"},
+      SP({fontWeight:"800",color:t.color,width:"44px"},t.name),
+      SP({flex:"1",color:"#64748B"},`${a.n}명 · 암송 ${a.sign} · 운동 ${a.sport}`));
+  });
+  return D({background:"#fff",border:"1px solid #E2E8F0",borderRadius:"12px",padding:"10px 12px",marginTop:"6px"},
+    D({fontSize:"12px",fontWeight:"700",color:"#64748B",marginBottom:"6px"},"⚖️ 지난번에 짠 팀 — 팀 간 최대 차이"),
+    D({display:"grid",gridTemplateColumns:"64px 1fr 1fr 1fr",gap:"4px 6px",fontSize:"13px",alignItems:"center",marginBottom:"8px"},
       SP({}),...["인원","암송","운동"].map(h=>SP({fontSize:"11px",color:"#94A3B8",textAlign:"center"},h)),
       ...rows.flatMap(r=>[
         SP({fontWeight:"700",color:r.label==="합산"?"#1E293B":"#64748B"},r.label),
         SP({textAlign:"center",fontWeight:"700"},r.n+"명"),
         SP({textAlign:"center",fontWeight:"700"},String(r.sign)),
-        SP({textAlign:"center",fontWeight:"700",color:r.sport>SPORT_TOL?"#DC2626":"#1E293B"},String(r.sport))])));
+        SP({textAlign:"center",fontWeight:"700",color:r.sport>SPORT_TOL?"#DC2626":"#1E293B"},String(r.sport))])),
+    ...perTeam);
+}
 
-  const nameChips=(list)=>D({display:"flex",flexWrap:"wrap",gap:"4px 10px"},
-    ...(list.length?list.map(k=>SP({fontSize:"16px",fontWeight:"700",whiteSpace:"nowrap"},k.name,
-      showN?SP({fontSize:"10px",color:"#94A3B8",fontWeight:"600",marginLeft:"3px"},`${k.sign}·${k.sport}`):null))
-      :[SP({fontSize:"13px",color:"#CBD5E1"},"없음")]));
-
+// 메인 화면 결과: 이름만 (숫자 없음)
+function buildResult(){
+  const res=S.result;
   const cards=res.colors.map(c=>{
     const t=TEAMS.find(x=>x.id===c.tid);
-    const s=stat(c.spk), tn=stat(c.tnt), all=stat([...c.spk,...c.tnt]);
-    const sub=(label,st,list,color)=>D({padding:"8px 0",borderTop:"1px solid "+t.color+"33"},
-      D({display:"flex",alignItems:"baseline",gap:"6px",marginBottom:"4px"},
-        SP({fontSize:"12px",fontWeight:"800",color},label),
-        SP({fontSize:"11px",color:"#94A3B8"},`${st.n}명`+(showN?` · 암송 ${st.sign} · 운동 ${st.sport}`:""))),
-      nameChips(list));
+    const sub=(label,list,color)=>D({padding:"6px 0",borderTop:"1px solid "+t.color+"33"},
+      SP({fontSize:"12px",fontWeight:"800",color,marginRight:"8px"},label),
+      SP({fontSize:"15px",fontWeight:"700"},list.map(k=>k.name).join(", ")||"-"));
     return D({background:"#fff",border:`2px solid ${t.color}`,borderRadius:"14px",padding:"10px 12px",marginBottom:"10px"},
-      D({display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"4px"},
-        SP({fontWeight:"900",fontSize:"18px",color:t.color},t.name+"팀"),
-        SP({fontSize:"12px",color:"#64748B",fontWeight:"600"},`${all.n}명`+(showN?` · 암송 ${all.sign} · 운동 ${all.sport}`:""))),
-      sub("스팍스",s,c.spk,"#EF4444"),
-      sub("티앤티",tn,c.tnt,"#16A34A"));
+      D({fontWeight:"900",fontSize:"17px",color:t.color,marginBottom:"2px"},t.name+"팀"),
+      sub("스팍스",c.spk,"#EF4444"),
+      sub("티앤티",c.tnt,"#16A34A"));
   });
-
   const copy=()=>{
     const lines=[`[어와나 ${res.week}주차 (${WEEK_DATES[res.week]||""}) 팀]`];
     res.colors.forEach(c=>{
@@ -464,25 +472,17 @@ function buildResult(){
     });
     copyText(lines.join("\n"),"📋 팀 명단을 복사했어요");
   };
-  const announceBtn=B({width:"100%",background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",border:"none",
-    borderRadius:"12px",padding:"13px",fontWeight:"800",fontSize:"15px",cursor:"pointer",marginBottom:"8px"},
-    ()=>openAnnounce(false),"📺 팀 발표 화면");
-  const tools=D({display:"flex",gap:"6px",marginBottom:"10px"},
-    B({flex:"1",background:"#fff",border:"1px solid #E2E8F0",borderRadius:"10px",padding:"10px",fontWeight:"700",fontSize:"13px",color:"#475569",cursor:"pointer"},
-      ()=>{S.showNums=!showN;render();},showN?"🙈 숫자 숨기기":"👀 숫자 보기"),
-    B({flex:"1",background:"#FEE500",border:"none",borderRadius:"10px",padding:"10px",fontWeight:"800",fontSize:"13px",color:"#1E293B",cursor:"pointer"},
-      copy,"📋 명단 복사"));
-
-  return D({marginTop:"14px"},
-    el("div",{id:"result"}),
-    D({fontWeight:"800",fontSize:"16px",marginBottom:"8px"},"🎉 이번 팀"),
-    announceBtn,showN?balance:null,tools,
-    D({className:"pop"},...cards),
-    showN?D({fontSize:"11px",color:"#94A3B8",textAlign:"center"},"이름 옆 작은 숫자 = 누적 암송 · 운동 점수"):null);
+  return D({marginTop:"10px"},
+    D({display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"8px"},
+      D({fontWeight:"800",fontSize:"16px"},"🎉 이번 팀"),
+      B({background:"#FEE500",border:"none",borderRadius:"10px",padding:"8px 14px",fontWeight:"800",fontSize:"13px",cursor:"pointer"},copy,"📋 명단 복사")),
+    ...cards);
 }
 
 // ════════════════════════════════════
-//  📺 팀 발표 화면 — 이름이 빠르게 섞이다가 4팀이 동시에 위에서부터 좌라락 확정 (약 2.5초)
+//  📺 팀 발표 화면
+//  ① 누르면 빈 대기 화면 (로고 + ▶ 시작) — 팀은 아직 안 짜짐
+//  ② 시작 → 그 순간 팀을 짜고, 이름이 섞이다가 4팀이 동시에 좌라락 확정 (약 2.5초)
 //  render()와 분리해 body에 직접 붙인다 (발표 중 데이터가 갱신돼도 화면이 끊기지 않게)
 // ════════════════════════════════════
 const SOUNDS={
@@ -500,30 +500,59 @@ function sound(key,on=true){
 const SHUFFLE_MS=1200;   // 다 같이 섞이는 시간
 const STEP_MS=80;        // 한 줄씩 확정되는 간격 (4팀 동시에)
 let _ann=null;
+function _annClear(){ if(!_ann) return; clearInterval(_ann.timer); _ann.timeouts.forEach(clearTimeout); _ann.timer=null; _ann.timeouts=[]; }
 function closeAnnounce(){
   if(!_ann) return;
-  clearInterval(_ann.timer); _ann.timeouts.forEach(clearTimeout);
-  sound("drumroll",false);
+  _annClear(); sound("drumroll",false);
   _ann.wrap.remove(); _ann=null;
   document.removeEventListener("keydown",_annKey);
   if(document.fullscreenElement) document.exitFullscreen?.().catch(()=>{});
+  render();
 }
-function _annKey(e){ if(e.key==="Escape") closeAnnounce(); }
-function openAnnounce(reshuffle){
-  if(reshuffle){ S.result=makeTeams(); render(); }
-  const res=S.result; if(!res) return;
-  const wasOpen=!!_ann;
-  if(_ann){ clearInterval(_ann.timer); _ann.timeouts.forEach(clearTimeout); _ann.wrap.remove(); }
-  else{
-    document.addEventListener("keydown",_annKey);
-    if(window.innerWidth>=900) document.documentElement.requestFullscreen?.().catch(()=>{});   // 모니터(PC)면 전체화면
-  }
+function _annKey(e){
+  if(e.key==="Escape") closeAnnounce();
+  else if((e.key===" "||e.key==="Enter")&&_ann&&_ann.state!=="running"){ e.preventDefault(); runAnnounce(); }
+}
+const btnStyle={border:"none",borderRadius:"14px",padding:"clamp(12px,1.6vh,18px) clamp(22px,2.6vw,40px)",
+  fontWeight:"800",fontSize:"clamp(16px,1.8vw,24px)",cursor:"pointer"};
+
+function openAnnounce(){
+  if(_ann) return;
+  if(window.innerWidth>=900) document.documentElement.requestFullscreen?.().catch(()=>{});   // 모니터(PC)면 전체화면
+  document.addEventListener("keydown",_annKey);
+  const wrap=D({position:"fixed",inset:"0",background:"#fff",zIndex:"1000",display:"flex",flexDirection:"column",
+    padding:"clamp(10px,2vw,28px)",boxSizing:"border-box",overflow:"auto"});
+  document.body.appendChild(wrap);
+  _ann={wrap,timer:null,timeouts:[],state:"standby"};
+  showStandby();
+}
+// 대기 화면: 이름도 숫자도 없음
+function showStandby(){
+  const w=_ann.wrap; w.innerHTML="";
+  const x=B({position:"fixed",top:"10px",right:"14px",background:"none",border:"none",fontSize:"26px",color:"#CBD5E1",cursor:"pointer"},closeAnnounce,"×");
+  const img=el("img",{src:"https://raw.githubusercontent.com/sydcawana/awana/main/awana_logo.jpg",
+    style:{width:"clamp(110px,18vw,220px)",height:"clamp(110px,18vw,220px)",objectFit:"contain",borderRadius:"20px"}});
+  w.appendChild(x);
+  w.appendChild(D({flex:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"clamp(14px,3vh,30px)"},
+    img,
+    D({fontWeight:"900",fontSize:"clamp(28px,5vw,64px)",color:"#1E293B",textAlign:"center"},"🎲 이번 주 팀 발표"),
+    D({display:"flex",gap:"10px",justifyContent:"center"},
+      ...TEAMS.map(t=>D({width:"clamp(36px,5vw,70px)",height:"clamp(36px,5vw,70px)",borderRadius:"14px",background:t.color}))),
+    B({...btnStyle,background:"linear-gradient(135deg,#7C3AED,#A855F7)",color:"#fff",
+      fontSize:"clamp(20px,2.6vw,34px)",padding:"clamp(14px,2vh,22px) clamp(36px,4vw,64px)",boxShadow:"0 6px 24px rgba(124,58,237,0.35)"},
+      ()=>runAnnounce(),"▶ 시작")));
+}
+// 시작: 이 순간 팀을 새로 짜고 발표 애니메이션
+function runAnnounce(){
+  if(!_ann) return;
+  _annClear(); _ann.state="running";
+  S.result=makeTeams();
+  const res=S.result;
   const att=attendees();
   const pool={spk:att.sparks.map(k=>k.name),tnt:att.tnt.map(k=>k.name)};
   const rnd=a=>a.length?a[Math.floor(Math.random()*a.length)]:"";
+  const w=_ann.wrap; w.innerHTML="";
 
-  const wrap=D({position:"fixed",inset:"0",background:"#fff",zIndex:"1000",display:"flex",flexDirection:"column",
-    padding:"clamp(10px,2vw,28px)",boxSizing:"border-box",overflow:"auto"});
   const title=D({textAlign:"center",fontWeight:"900",fontSize:"clamp(22px,4vw,52px)",color:"#1E293B",
     marginBottom:"clamp(8px,1.5vh,20px)"},"🎲 팀을 섞는 중...");
   const grid=D({flex:"1",display:"grid",gap:"clamp(8px,1.2vw,18px)",
@@ -549,17 +578,12 @@ function openAnnounce(reshuffle){
     slotsByCard.push(slots);
     grid.appendChild(card);
   });
-  const btnStyle={border:"none",borderRadius:"12px",padding:"clamp(10px,1.4vh,16px) clamp(16px,2vw,32px)",
-    fontWeight:"800",fontSize:"clamp(14px,1.6vw,20px)",cursor:"pointer"};
   const bar=D({display:"flex",gap:"10px",justifyContent:"center",marginTop:"clamp(10px,2vh,24px)",visibility:"hidden"},
-    B({...btnStyle,background:"#1E293B",color:"#fff"},()=>openAnnounce(true),"🔀 다시 섞기"),
+    B({...btnStyle,background:"#1E293B",color:"#fff"},()=>runAnnounce(),"🔀 다시 섞기"),
     B({...btnStyle,background:"#F1F5F9",color:"#64748B"},closeAnnounce,"닫기"));
-  // 섞는 중에도 닫을 수 있게 작은 X
   const x=B({position:"fixed",top:"10px",right:"14px",background:"none",border:"none",fontSize:"26px",color:"#CBD5E1",cursor:"pointer",zIndex:"1001"},closeAnnounce,"×");
-  wrap.appendChild(x); wrap.appendChild(title); wrap.appendChild(grid); wrap.appendChild(bar);
-  document.body.appendChild(wrap);
+  w.appendChild(x); w.appendChild(title); w.appendChild(grid); w.appendChild(bar);
 
-  _ann={wrap,timer:null,timeouts:[]};
   sound("drumroll");
   _ann.timer=setInterval(()=>{
     slotsByCard.flat().forEach(s=>{ if(!s.done) s.el.textContent=rnd(s.pool); });
@@ -570,12 +594,12 @@ function openAnnounce(reshuffle){
       slotsByCard.forEach(slots=>{
         const s=slots[i]; if(!s) return;
         s.done=true; s.el.textContent=s.final;
-        Object.assign(s.el.style,{color:"#1E293B"}); s.el.className="pop";
+        s.el.style.color="#1E293B"; s.el.className="pop";
       });
     },SHUFFLE_MS+i*STEP_MS));
   }
   _ann.timeouts.push(setTimeout(()=>{
-    clearInterval(_ann.timer);
+    clearInterval(_ann.timer); _ann.state="done";
     sound("drumroll",false); sound("chime");
     title.textContent="🎉 이번 주 팀 발표!";
     bar.style.visibility="visible";
