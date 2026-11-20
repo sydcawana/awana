@@ -297,6 +297,21 @@ async function confirmClub(club){
     return true;
   }catch(e){ console.warn("임시 팀 저장 실패",e); alert("저장하지 못했어요: "+e.message); return false; }
 }
+// 이번 주 처음부터: 확정 전 팀 + 확정된 임시 팀(두 클럽 모두) 삭제 → 공식 팀 기준으로 돌아감
+async function resetWeek(){
+  const w=S.week, saved=savedMap(w);
+  const hasPend=!!(pendingOf("sparks")||pendingOf("tnt"));
+  if(!saved&&!hasPend){ toast("초기화할 팀이 없어요"); return; }
+  if(saved&&S.closedWeeks.includes(w)){ alert(`${w}주차는 잠겨 있어요.\n어쩜조아에서 🔒을 열고 다시 눌러 주세요.`); return; }
+  if(!confirm(`${w}주차 임시 팀을 모두 초기화할까요?\n스팍스·티앤티 팀이 모두 지워지고 처음부터 다시 짤 수 있어요.`+
+    (saved?`\n(확정된 임시 팀도 지워져서 이번 주 점수는 공식 팀 기준으로 돌아가요)`:""))) return;
+  S.pend={sparks:null,tnt:null};
+  if(saved){
+    try{ await updateDoc(doc(db,"awana",`week_${w}`),{teams:deleteField(),teamsAt:deleteField(),_savedAt:Date.now()}); }
+    catch(e){ alert("초기화하지 못했어요: "+e.message); render(); return; }
+  }
+  render(); toast("🔄 초기화했어요. 처음부터 다시 짜요");
+}
 async function releaseClub(club){
   const w=S.week, map=savedMap(w); if(!map) return;
   if(S.closedWeeks.includes(w)){ alert(`${w}주차는 잠겨 있어요.`); return; }
@@ -447,7 +462,9 @@ function buildMainBody(nAtt){
     D({},"두 번째로 짜는 클럽은 먼저 짠 클럽 팀과 합쳐서 균형을 맞춰요."),
     unset?D({color:"#B45309"},`운동 점수 미입력 ${unset}명 → ⚙️ 설정에서 입력 (안 하면 보통으로 계산)`):null);
   const any=clubStatus("sparks")!=="none"||clubStatus("tnt")!=="none";
-  return [D({display:"flex",gap:"8px"},clubBox("sparks"),clubBox("tnt")),note,any?buildResult():null];
+  const resetBtn=any?B({width:"100%",background:"#fff",border:"1.5px solid #FECACA",borderRadius:"12px",padding:"11px",
+    fontWeight:"700",fontSize:"14px",color:"#EF4444",cursor:"pointer",marginTop:"6px"},resetWeek,"🔄 초기화 (처음부터 다시)"):null;
+  return [D({display:"flex",gap:"8px"},clubBox("sparks"),clubBox("tnt")),note,any?buildResult():null,resetBtn];
 }
 
 function buildSettingsBody(att){
