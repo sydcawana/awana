@@ -84,7 +84,7 @@ const HB_GROUPS = [
   {label:"T&T",  color:"#16A34A",light:"#F0FFF4",border:"#22C55E",books:["어드벤처1","어드벤처2","챌린지1","챌린지2"]},
 ];
 // 배포 확인용 버전 (설정 헤더에 표시됨) — 파일을 바꿀 때마다 올려주세요
-const APP_VER = "2026-2학기 v17";
+const APP_VER = "2026-2학기 v18";
 
 // ⚠️ 매 학기 이 줄만 갈아끼우면 됩니다 (0번은 테스트 주차)
 // 2학기: 8/23 개강 ~ 12/6 종강, 9/27 휴강 (10/25는 진행 → 9주차)
@@ -549,11 +549,14 @@ function smallestTempTeam(wd,sid){
   const st=S.students.find(s=>s.id===sid); if(!st) return null;
   const grp=getAwardGroup(st.handbook||"");
   const cnt={}; TEAMS.forEach(t=>cnt[t.id]=0);
+  let clubHasTemp=false;
   S.students.forEach(s=>{
     if(s.id===sid||getAwardGroup(s.handbook||"")!==grp) return;
     const tid=wd.teams?.[s.id];
+    if(tid) clubHasTemp=true;
     if(tid&&wd.students?.[s.id]?.attendance&&cnt[tid]!=null) cnt[tid]++;
   });
+  if(!clubHasTemp) return null;   // 이 클럽은 아직 임시 팀을 안 짰음 → 배정하지 않음 (random.html에서 짤 때 들어감)
   const min=Math.min(...Object.values(cnt));
   const cands=TEAMS.filter(t=>cnt[t.id]===min);
   return cands[Math.floor(Math.random()*cands.length)].id;
