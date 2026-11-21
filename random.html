@@ -388,6 +388,7 @@ function render(){
   if(S.week==null&&S.settingsLoaded){ S.week=openWeek()??upcomingWeekByDate()??1; }
   if(DISPLAY&&S.loaded&&S.user&&S.settingsLoaded&&S.showLoaded){
     if(!_disp.root){ root.innerHTML=""; mountDisplay(root); }
+    else if(S.show?.state==="all"&&S.show.week===S.week) dispAll(false);    // 늦게 온 아이 등 명단 갱신
     else if(!(S.show?.state==="run"&&S.show.week===S.week)) dispStandby();   // 대기 화면의 ✅/⏳ 갱신
     dispUpdate();
     return;
@@ -482,8 +483,14 @@ function buildMainBody(nAtt){
         done?"모니터에 발표됐어요":!n?"출석한 아이가 없어요":other?`${n}명 · ${clubName(OTHER[club])} 팀에 맞춰 짜요`:`${n}명`));
   };
   const any=clubDone("sparks")||clubDone("tnt");
+  const allOn=S.show?.state==="all"&&S.show.week===S.week;
+  const allBtn=B({width:"100%",background:any?"linear-gradient(135deg,#7C3AED,#A855F7)":"#CBD5E1",color:"#fff",border:"none",
+    borderRadius:"14px",padding:"16px",fontWeight:"800",fontSize:"17px",cursor:any?"pointer":"default",marginBottom:"8px"},
+    async()=>{ if(!any) return; try{ await sendShow({state:"all",week:S.week}); toast("📺 모니터에 전체 팀을 띄웠어요"); }catch(e){ alert("보내지 못했어요: "+e.message); } },
+    allOn?"📺 모니터에 전체 보기 중":"📺 전체 보기 (스팍스 + 티앤티)");
   return [
     D({display:"flex",gap:"10px",margin:"4px 0 10px"},bigBtn("sparks"),bigBtn("tnt")),
+    allBtn,
     D({fontSize:"12px",color:"#94A3B8",textAlign:"center",lineHeight:"1.6",marginBottom:"12px"},
       "누르면 팀이 짜지고 방송실 모니터에 발표돼요. 어쩜조아에도 임시 팀으로 바로 저장돼요.",
       D({},"다시 섞기 · 초기화는 ⚙️ 설정(선생님용)에 있어요.")),
@@ -659,6 +666,7 @@ function dispUpdate(){
   _disp.first=false; _disp.seq=sh.seq;
   _dispClear();
   if(sh.state==="run"&&sh.club&&sh.week===S.week) dispRun(sh,animate);
+  else if(sh.state==="all"&&sh.week===S.week) dispAll(true);
   else dispStandby();
 }
 function dispStandby(){
@@ -672,6 +680,30 @@ function dispStandby(){
       ...TEAMS.map(t=>D({width:"clamp(36px,5vw,70px)",height:"clamp(36px,5vw,70px)",borderRadius:"14px",background:t.color}))),
     D({fontSize:"clamp(18px,2.2vw,30px)",fontWeight:"800",color:"#64748B",display:"flex",gap:"28px"},
       SP({color:clubColor("sparks")},`스팍스 ${st("sparks")}`),SP({color:clubColor("tnt")},`티앤티 ${st("tnt")}`))));
+}
+// 전체 보기: 색깔별로 스팍스 + 티앤티 함께 (확정된 임시 팀 기준, 이름만)
+function dispAll(pop){
+  const w=_disp.root; w.innerHTML="";
+  const grid=D({flex:"1",display:"grid",gap:"clamp(8px,1.2vw,18px)",
+    gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,260px),1fr))",alignContent:"start"});
+  TEAMS.forEach(t=>{
+    const sec=club=>{
+      const list=listOf(club,t.id);
+      return D({background:"#fff",borderRadius:"12px",padding:"clamp(6px,1vh,12px)"},
+        D({fontSize:"clamp(13px,1.4vw,20px)",fontWeight:"800",color:clubColor(club),textAlign:"center",marginBottom:"4px"},clubName(club)),
+        D({display:"flex",flexDirection:"column",alignItems:"center",gap:"clamp(2px,0.5vh,6px)"},
+          ...(clubDone(club)?(list.length?list.map(k=>SP({fontWeight:"800",fontSize:"clamp(18px,2.2vw,34px)",color:"#1E293B",whiteSpace:"nowrap"},k.name))
+            :[SP({color:"#CBD5E1",fontSize:"clamp(14px,1.5vw,22px)"},"-")])
+            :[SP({color:"#CBD5E1",fontSize:"clamp(14px,1.5vw,22px)",fontWeight:"700"},"⏳ 아직")])));
+    };
+    grid.appendChild(D({className:pop?"pop":"",border:`clamp(3px,0.4vw,6px) solid ${t.color}`,borderRadius:"18px",background:t.light,
+      padding:"clamp(10px,1.4vw,20px)",display:"flex",flexDirection:"column",gap:"clamp(8px,1.2vh,14px)"},
+      D({fontWeight:"900",fontSize:"clamp(24px,3.2vw,48px)",color:t.color,textAlign:"center"},"임시 "+t.name+"팀"),
+      sec("sparks"),sec("tnt")));
+  });
+  w.appendChild(D({textAlign:"center",fontWeight:"900",fontSize:"clamp(22px,4vw,52px)",color:"#1E293B",marginBottom:"clamp(8px,1.5vh,20px)"},
+    "🎉 이번 주 임시 팀"));
+  w.appendChild(grid);
 }
 function dispRun(sh,animate){
   const club=sh.club, w=_disp.root; w.innerHTML="";
