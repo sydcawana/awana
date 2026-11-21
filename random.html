@@ -679,7 +679,29 @@ function dispStandby(){
     D({display:"flex",gap:"10px",justifyContent:"center"},
       ...TEAMS.map(t=>D({width:"clamp(36px,5vw,70px)",height:"clamp(36px,5vw,70px)",borderRadius:"14px",background:t.color}))),
     D({fontSize:"clamp(18px,2.2vw,30px)",fontWeight:"800",color:"#64748B",display:"flex",gap:"28px"},
-      SP({color:clubColor("sparks")},`스팍스 ${st("sparks")}`),SP({color:clubColor("tnt")},`티앤티 ${st("tnt")}`))));
+      SP({color:clubColor("sparks")},`스팍스 ${st("sparks")}`),SP({color:clubColor("tnt")},`티앤티 ${st("tnt")}`)),
+    dispControls(true)));
+}
+// 모니터에서 직접 누르는 버튼 (폰 없이도 진행)
+//  · big=true: 대기 화면 가운데 큰 버튼 / false: 발표 화면 아래 작은 버튼 (평소엔 흐리게, 마우스 올리면 진하게)
+function dispControls(big){
+  const att=attendees();
+  const mk=(label,bg,enabled,fn)=>B({border:"none",borderRadius:big?"16px":"10px",cursor:enabled?"pointer":"default",
+    padding:big?"clamp(12px,1.8vh,20px) clamp(22px,2.6vw,40px)":"8px 14px",fontWeight:"800",
+    fontSize:big?"clamp(16px,1.8vw,26px)":"14px",background:enabled?bg:"#E2E8F0",color:enabled?"#fff":"#94A3B8"},
+    ()=>{ if(enabled) fn(); },label);
+  const club=c=>{
+    const done=clubDone(c), n=att[c].length, busy=S.busy===c;
+    return mk(busy?"섞는 중...":done?`✅ ${clubName(c)}`:`▶ ${clubName(c)} 시작`,clubColor(c),!done&&n>0&&!S.busy,()=>startClub(c));
+  };
+  const any=clubDone("sparks")||clubDone("tnt");
+  const btns=[club("sparks"),club("tnt"),
+    mk("📺 전체 보기","#7C3AED",any,()=>sendShow({state:"all",week:S.week}).catch(e=>alert(e.message)))];
+  if(!big) btns.push(mk("⏸ 대기 화면","#64748B",true,()=>sendShow({state:"idle"}).catch(e=>alert(e.message))));
+  const bar=D({display:"flex",gap:big?"12px":"8px",justifyContent:"center",flexWrap:"wrap",
+    marginTop:big?"0":"clamp(10px,2vh,20px)",opacity:big?"1":"0.35",transition:"opacity 0.2s"},...btns);
+  if(!big){ bar.addEventListener("mouseenter",()=>bar.style.opacity="1"); bar.addEventListener("mouseleave",()=>bar.style.opacity="0.35"); }
+  return bar;
 }
 // 전체 보기: 색깔별로 스팍스 + 티앤티 함께 (확정된 임시 팀 기준, 이름만)
 function dispAll(pop){
@@ -704,6 +726,7 @@ function dispAll(pop){
   w.appendChild(D({textAlign:"center",fontWeight:"900",fontSize:"clamp(22px,4vw,52px)",color:"#1E293B",marginBottom:"clamp(8px,1.5vh,20px)"},
     "🎉 이번 주 임시 팀"));
   w.appendChild(grid);
+  w.appendChild(dispControls(false));
 }
 function dispRun(sh,animate){
   const club=sh.club, w=_disp.root; w.innerHTML="";
@@ -731,7 +754,9 @@ function dispRun(sh,animate){
       D({background:"#fff",borderRadius:"12px",padding:"clamp(8px,1.2vh,14px)",minHeight:"2em"},box)));
   });
   w.appendChild(title); w.appendChild(grid);
-  if(!animate) return;
+  const ctlWrap=D({}); w.appendChild(ctlWrap);
+  const showCtl=()=>{ ctlWrap.innerHTML=""; ctlWrap.appendChild(dispControls(false)); };
+  if(!animate){ showCtl(); return; }
   sound("drumroll");
   _disp.timer=setInterval(()=>{ slotsByCard.flat().forEach(s=>{ if(!s.done) s.el.textContent=rnd(); }); },60);
   const maxLen=Math.max(0,...slotsByCard.map(s=>s.length));
@@ -748,6 +773,7 @@ function dispRun(sh,animate){
     clearInterval(_disp.timer); _disp.timer=null;
     sound("drumroll",false); sound("chime");
     setTitle("🎉 "," 임시 팀 발표!");
+    showCtl();
   },SHUFFLE_MS+maxLen*STEP_MS+150));
 }
 
